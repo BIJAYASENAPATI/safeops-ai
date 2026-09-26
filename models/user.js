@@ -1,7 +1,5 @@
 module.exports = (sequelize, DataTypes) => {
-  const User = sequelize.define(
-    "User",
-    {
+  const User = sequelize.define( "User", {
       id: {
         type: DataTypes.INTEGER,
         primaryKey: true,
@@ -32,7 +30,7 @@ module.exports = (sequelize, DataTypes) => {
       },
       password_hash: {
         type: DataTypes.STRING,
-        allowNull: false,
+        allowNull: true,
       },
       role: {
         type: DataTypes.ENUM("operator", "manager", "admin", "super_admin"),
@@ -67,30 +65,13 @@ module.exports = (sequelize, DataTypes) => {
   );
 
   User.associate = (models) => {
-    User.belongsTo(models.Plant, {
-      foreignKey: "plant_id",
-      as: "plant",
-    });
-    User.belongsTo(models.User, {
-      foreignKey: "invited_by",
-      as: "inviter",
-    });
-    User.hasMany(models.Incident, {
-      foreignKey: "assigned_operator_id",
-      as: "assigned_incidents",
-    });
-    User.hasMany(models.EscalationRule, {
-      foreignKey: "escalation_contact_id",
-      as: "escalation_rules",
-    });
-    User.hasMany(models.AuditLogEntry, {
-      foreignKey: "actor_id",
-      as: "audit_log_entries",
-    });
-    User.hasMany(models.User, {
-      foreignKey: "invited_by",
-      as: "invitees",
-    });
+    User.belongsTo(models.Plant, { foreignKey: "plant_id", as: "plant", });
+    User.belongsTo(models.User, { foreignKey: "invited_by", as: "inviter", });
+    User.hasMany(models.Incident, { foreignKey: "assigned_operator_id", as: "assigned_incidents", });
+    User.hasMany(models.EscalationRule, { foreignKey: "escalation_contact_id", as: "escalation_rules", });
+    User.hasMany(models.AuditLogEntry, { foreignKey: "actor_id", as: "audit_log_entries", });
+    User.hasMany(models.User, { foreignKey: "invited_by", as: "invitees", });
+    User.hasMany(models.InvitationToken, { foreignKey: "user_id", as: "invitation_tokens", });
   };
 
   return User;

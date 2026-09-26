@@ -42,3 +42,4 @@ temp/
 # Sequelize / database files
 *.sqlite
 *.sqlite3
+backups/
