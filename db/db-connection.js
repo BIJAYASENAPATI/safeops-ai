@@ -34,7 +34,7 @@ fs.readdirSync(modelsDir)
       sequelize,
       Sequelize.DataTypes
     );
-    db[model.name] = model; 
+    db[model.name] = model;
   });
 
 // Setup associations if defined

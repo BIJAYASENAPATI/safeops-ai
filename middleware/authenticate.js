@@ -37,6 +37,10 @@ const authenticate = async (req, res, next) => {
       return res.status(401).json({ error: "User invitation is pending", message: "User invitation is pending", });
     }
 
+    if (user.account_status === "disabled") {
+      return res.status(401).json({ error: "Account is disabled", message: "Account is disabled", });
+    }
+
     req.user = user;
     next();
   } catch (error) {

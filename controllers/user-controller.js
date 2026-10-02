@@ -1,5 +1,21 @@
 const crypto = require("crypto");
+const { Op } = require("sequelize");
 const db = require("../db/db-connection");
+const { parsePagination, formatPaginatedResponse } = require("../utils/pagination");
+
+// Returns safe user fields, strictly excluding sensitive attributes like password_hash.
+const formatSafeUser = (user) => ({
+  id: user.id,
+  name: user.name,
+  email: user.email,
+  role: user.role,
+  plant_id: user.plant_id,
+  account_status: user.account_status,
+  invite_status: user.invite_status,
+  ...(user.invited_by !== undefined && user.invited_by !== null ? { invited_by: user.invited_by } : {}),
+  ...(user.created_at ? { created_at: user.created_at } : {}),
+  ...(user.updated_at ? { updated_at: user.updated_at } : {}),
+});
 
 // POST /users/invite
 const inviteUser = async (req, res) => {
@@ -85,6 +101,7 @@ const inviteUser = async (req, res) => {
           plant_id: targetPlantId,
           password_hash: null,
           invite_status: "pending",
+          account_status: "active",
           invited_by: req.user.id,
         },
         { transaction: t }
@@ -107,28 +124,25 @@ const inviteUser = async (req, res) => {
       message: "Invitation created successfully",
       token: rawToken,
       invitation_token: rawToken,
-      user: {
-        id: result.id,
-        name: result.name,
-        email: result.email,
-        role: result.role,
-        plant_id: result.plant_id,
-        invite_status: result.invite_status,
-        invited_by: result.invited_by,
-      },
+      user: formatSafeUser(result),
     });
   } catch (error) {
     console.error("Invite user error:", error);
-    return res.status(500).json({
-      error: "Failed to create user invitation",
-      message: error.message,
-    });
+    return res.status(500).json({ error: "Failed to create user invitation", message: error.message, });
   }
 };
 
 // GET /users
 const listUsers = async (req, res) => {
   try {
+    // 1-4. Read, validate and calculate pagination parameters
+    const pagination = parsePagination(req.query);
+    if (pagination.error) {
+      return res.status(400).json({ error: pagination.error, message: pagination.error, });
+    }
+    const { page, limit, offset } = pagination;
+
+    // 5. Apply plant permissions, search, and other filters
     let whereClause = {};
 
     if (req.user.role === "super_admin") {
@@ -150,13 +164,34 @@ const listUsers = async (req, res) => {
       });
     }
 
-    const users = await db.User.findAll({
+    if (req.query.role) {
+      whereClause.role = req.query.role;
+    }
+    if (req.query.invite_status) {
+      whereClause.invite_status = req.query.invite_status;
+    }
+    if (req.query.account_status) {
+      whereClause.account_status = req.query.account_status;
+    }
+    if (req.query.search && req.query.search.trim()) {
+      const searchTerm = `%${req.query.search.trim()}%`;
+      whereClause[Op.or] = [
+        { name: { [Op.like]: searchTerm } },
+        { email: { [Op.like]: searchTerm } },
+      ];
+    }
+
+    // 6. Use findAndCountAll({ where, limit, offset, order: [["id", "ASC"]] })
+    const { count, rows } = await db.User.findAndCountAll({
       where: whereClause,
-      attributes: ["id", "name", "email", "role", "plant_id", "invite_status"],
+      attributes: ["id", "name", "email", "role", "plant_id", "invite_status", "account_status"],
+      limit,
+      offset,
       order: [["id", "ASC"]],
     });
 
-    return res.status(200).json(users);
+    // 7. Return standard paginated response structure
+    return res.status(200).json(formatPaginatedResponse(rows, count, page, limit));
   } catch (error) {
     console.error("List users error:", error);
     return res.status(500).json({ error: "Failed to retrieve users", message: error.message, });
@@ -195,24 +230,347 @@ const assignPlant = async (req, res) => {
     await user.update({ plant_id });
 
     // 5. Return updated safe user fields
-    return res.status(200).json({
-      message: "User plant assigned successfully",
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        plant_id: user.plant_id,
-        invite_status: user.invite_status,
-      },
-    });
+    return res.status(200).json({ message: "User plant assigned successfully", user: formatSafeUser(user), });
   } catch (error) {
     console.error("Assign plant error:", error);
-    return res.status(500).json({
-      error: "Failed to assign plant to user",
-      message: error.message,
-    });
+    return res.status(500).json({ error: "Failed to assign plant to user", message: error.message, });
   }
 };
 
-module.exports = { inviteUser, listUsers, assignPlant, };
+// GET /users/:id - Particular permitted user
+const getUserById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await db.User.findByPk(id);
+
+    if (!user) {
+      return res.status(404).json({
+        error: "User not found",
+        message: "User not found",
+      });
+    }
+
+    // Access check:
+    // Super admin can access any user
+    // Plant admin can view managers/operators in own plant, or view self
+    // Other users can only view self
+    const isSuperAdmin = req.user.role === "super_admin";
+    const isSelf = Number(req.user.id) === Number(user.id);
+    const isPlantAdminPermitted =
+      req.user.role === "admin" &&
+      Number(req.user.plant_id) === Number(user.plant_id) &&
+      ["manager", "operator"].includes(user.role);
+
+    if (!isSuperAdmin && !isSelf && !isPlantAdminPermitted) {
+      return res.status(403).json({
+        error: "Forbidden: insufficient permissions to access this user",
+        message: "Forbidden: insufficient permissions to access this user",
+      });
+    }
+
+    const safeUser = formatSafeUser(user);
+    return res.status(200).json({ ...safeUser, user: safeUser, });
+  } catch (error) {
+    console.error("Get user by ID error:", error);
+    return res.status(500).json({ error: "Failed to retrieve user", message: error.message, });
+  }
+};
+
+// PATCH /users/:id - Update permitted fields
+const updateUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const user = await db.User.findByPk(id);
+    if (!user) {
+      return res.status(404).json({ error: "User not found", message: "User not found", });
+    }
+
+    // Access check:
+    // Super admin can manage all users.
+    // Plant admin can manage managers/operators within their own plant.
+    const isSuperAdmin = req.user.role === "super_admin";
+    const isPlantAdmin =
+      req.user.role === "admin" &&
+      Number(req.user.plant_id) === Number(user.plant_id) &&
+      ["manager", "operator"].includes(user.role);
+
+    if (!isSuperAdmin && !isPlantAdmin) {
+      return res.status(403).json({
+        error: "Forbidden: insufficient permissions to update this user",
+        message: "Forbidden: insufficient permissions to update this user",
+      });
+    }
+
+    // Reject sensitive fields (Instruction 8)
+    const sensitiveFields = ["password_hash", "password", "token", "token_hash", "invited_by", "invite_status",];
+    for (const field of sensitiveFields) {
+      if (req.body[field] !== undefined) {
+        return res.status(400).json({
+          error: `Updating ${field} is not allowed`,
+          message: `Updating ${field} is not allowed`,
+        });
+      }
+    }
+
+    const { name, email, role, plant_id, account_status } = req.body;
+    const updateData = {};
+
+    // 1. Name update
+    if (name !== undefined) {
+      if (typeof name !== "string" || !name.trim()) {
+        return res.status(400).json({ error: "Name must be a non-empty string", message: "Name must be a non-empty string", });
+      }
+      updateData.name = name.trim();
+    }
+
+    // 2. Email update
+    if (email !== undefined) {
+      if (typeof email !== "string" || !email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+        return res.status(400).json({
+          error: "A valid email is required",
+          message: "A valid email is required",
+        });
+      }
+      const normalizedEmail = email.trim().toLowerCase();
+      if (normalizedEmail !== user.email) {
+        const existing = await db.User.findOne({
+          where: { email: normalizedEmail, id: { [Op.ne]: user.id } },
+        });
+        if (existing) {
+          return res.status(409).json({
+            error: "A user with this email already exists",
+            message: "A user with this email already exists",
+          });
+        }
+      }
+      updateData.email = normalizedEmail;
+    }
+
+    // 3. Role update (Instruction 6: Reserve role elevation for super admin)
+    if (role !== undefined) {
+      if (!isSuperAdmin) {
+        return res.status(403).json({
+          error: "Forbidden: only super_admin can change user roles",
+          message: "Forbidden: only super_admin can change user roles",
+        });
+      }
+      const normalizedRole = typeof role === "string" ? role.toLowerCase().trim() : "";
+      const allowedRoles = ["operator", "manager", "admin", "super_admin"];
+      if (!allowedRoles.includes(normalizedRole)) {
+        return res.status(400).json({
+          error: `Invalid role specified. Allowed roles: ${allowedRoles.join(", ")}`,
+          message: `Invalid role specified. Allowed roles: ${allowedRoles.join(", ")}`,
+        });
+      }
+      // If demoting super admin, check if last active super admin
+      if (user.role === "super_admin" && normalizedRole !== "super_admin") {
+        const activeSuperAdmins = await db.User.count({
+          where: { role: "super_admin", account_status: "active" },
+        });
+        if (activeSuperAdmins <= 1 && user.account_status === "active") {
+          return res.status(400).json({
+            error: "Cannot disable or demote the last active super admin",
+            message: "Cannot disable or demote the last active super admin",
+          });
+        }
+      }
+      updateData.role = normalizedRole;
+    }
+
+    // 4. Plant reassignment (Instruction 6: Reserve plant reassignment for super admin)
+    if (plant_id !== undefined) {
+      if (!isSuperAdmin) {
+        return res.status(403).json({
+          error: "Forbidden: only super_admin can reassign plants",
+          message: "Forbidden: only super_admin can reassign plants",
+        });
+      }
+      if (plant_id !== null) {
+        const plant = await db.Plant.findByPk(plant_id);
+        if (!plant) {
+          return res.status(404).json({ error: "Plant not found", message: `Plant with ID ${plant_id} does not exist`, });
+        }
+      }
+      updateData.plant_id = plant_id;
+    }
+
+    // 5. Account status update (active / disabled)
+    if (account_status !== undefined) {
+      if (!["active", "disabled"].includes(account_status)) {
+        return res.status(400).json({
+          error: "account_status must be either 'active' or 'disabled'",
+          message: "account_status must be either 'active' or 'disabled'",
+        });
+      }
+      // Instruction 7: Reject attempts to disable the last active super admin
+      if (account_status === "disabled" && user.role === "super_admin") {
+        const activeSuperAdmins = await db.User.count({
+          where: { role: "super_admin", account_status: "active" },
+        });
+        if (activeSuperAdmins <= 1 && user.account_status === "active") {
+          return res.status(400).json({
+            error: "Cannot disable the last active super admin",
+            message: "Cannot disable the last active super admin",
+          });
+        }
+      }
+      updateData.account_status = account_status;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({
+        error: "No valid fields provided for update",
+        message: "No valid fields provided for update",
+      });
+    }
+
+    await user.update(updateData);
+
+    const safeUser = formatSafeUser(user);
+    return res.status(200).json({
+      message: "User updated successfully",
+      ...safeUser,
+      user: safeUser,
+    });
+  } catch (error) {
+    console.error("Update user error:", error);
+    return res.status(500).json({ error: "Failed to update user", message: error.message, });
+  }
+};
+
+// PATCH/POST /users/:id/enable - Enable user account
+const enableUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (req.user.role === "operator") {
+      return res.status(403).json({
+        error: "Forbidden: insufficient permissions",
+        message: "Forbidden: operators are not permitted to enable users",
+      });
+    }
+
+    const user = await db.User.findByPk(id);
+    if (!user) {
+      return res.status(404).json({
+        error: "User not found",
+        message: "User not found",
+      });
+    }
+
+    // Access check:
+    // Super admin can enable any user
+    // Plant admin can enable managers/operators within their own plant
+    const isSuperAdmin = req.user.role === "super_admin";
+    const isPlantAdmin =
+      req.user.role === "admin" &&
+      Number(req.user.plant_id) === Number(user.plant_id) &&
+      ["manager", "operator"].includes(user.role);
+
+    if (!isSuperAdmin && !isPlantAdmin) {
+      return res.status(403).json({
+        error: "Forbidden: insufficient permissions to enable this user",
+        message: "Forbidden: insufficient permissions to enable this user",
+      });
+    }
+
+    await user.update({ account_status: "active" });
+
+    const safeUser = formatSafeUser(user);
+    return res.status(200).json({
+      message: "User account enabled successfully",
+      ...safeUser,
+      user: safeUser,
+    });
+  } catch (error) {
+    console.error("Enable user error:", error);
+    return res.status(500).json({ error: "Failed to enable user account", message: error.message });
+  }
+};
+
+// PATCH/POST /users/:id/disable - Disable user account
+const disableUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (req.user.role === "operator") {
+      return res.status(403).json({
+        error: "Forbidden: insufficient permissions",
+        message: "Forbidden: operators are not permitted to disable users",
+      });
+    }
+
+    const user = await db.User.findByPk(id);
+    if (!user) {
+      return res.status(404).json({
+        error: "User not found",
+        message: "User not found",
+      });
+    }
+
+    // Access check:
+    // Super admin can disable any user (except last active super admin)
+    // Plant admin can only disable managers/operators within their own plant
+    const isSuperAdmin = req.user.role === "super_admin";
+    const isPlantAdmin =
+      req.user.role === "admin" &&
+      Number(req.user.plant_id) === Number(user.plant_id) &&
+      ["manager", "operator"].includes(user.role);
+
+    if (!isSuperAdmin && !isPlantAdmin) {
+      return res.status(403).json({
+        error: "Forbidden: insufficient permissions to disable this user",
+        message: "Forbidden: insufficient permissions to disable this user",
+      });
+    }
+
+    // Reject attempts to disable the last active super admin
+    if (user.role === "super_admin") {
+      const activeSuperAdmins = await db.User.count({
+        where: { role: "super_admin", account_status: "active" },
+      });
+      if (activeSuperAdmins <= 1 && user.account_status === "active") {
+        return res.status(400).json({
+          error: "Cannot disable the last active super admin",
+          message: "Cannot disable the last active super admin",
+        });
+      }
+    }
+
+    await user.update({ account_status: "disabled" });
+
+    const safeUser = formatSafeUser(user);
+    return res.status(200).json({
+      message: "User account disabled successfully",
+      ...safeUser,
+      user: safeUser,
+    });
+  } catch (error) {
+    console.error("Disable user error:", error);
+    return res.status(500).json({ error: "Failed to disable user account", message: error.message });
+  }
+};
+
+// PATCH /users/:id/status - Update account status (active/disabled)
+const updateUserStatus = async (req, res) => {
+  const status = req.body.account_status || req.body.status;
+  if (!status || !["active", "disabled"].includes(status)) {
+    return res.status(400).json({
+      error: "account_status must be either 'active' or 'disabled'",
+      message: "account_status must be either 'active' or 'disabled'",
+    });
+  }
+  if (status === "active") {
+    return enableUser(req, res);
+  } else {
+    return disableUser(req, res);
+  }
+};
+
+// DELETE /users/:id - Disable account
+const deleteUser = async (req, res) => {
+  return disableUser(req, res);
+};
+
+module.exports = { inviteUser, listUsers, assignPlant, getUserById, updateUser, deleteUser, enableUser, disableUser, updateUserStatus, formatSafeUser, };

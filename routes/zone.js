@@ -2,18 +2,29 @@ const express = require("express");
 const router = express.Router();
 const zoneController = require("../controllers/zone-controller");
 const authenticate = require("../middleware/authenticate");
+const authorizeRoles = require("../middleware/authorize-roles");
 
 // GET /zones/:id - User assigned to zone's plant or super admin
 router.get("/:id", authenticate, zoneController.getZoneById);
 
+// Enable/disable zone - Super admin or admin assigned to zone's plant, not operator
+router.patch("/:id/enable", authenticate, authorizeRoles("super_admin", "admin"), zoneController.enableZone);
+router.post("/:id/enable", authenticate, authorizeRoles("super_admin", "admin"), zoneController.enableZone);
+router.patch("/:id/disable", authenticate, authorizeRoles("super_admin", "admin"), zoneController.disableZone);
+router.post("/:id/disable", authenticate, authorizeRoles("super_admin", "admin"), zoneController.disableZone);
+router.patch("/:id/status", authenticate, authorizeRoles("super_admin", "admin"), zoneController.updateZoneStatus);
+
 // PATCH /zones/:id - Super admin or admin assigned to zone's plant
-router.patch("/:id", authenticate, zoneController.updateZone);
+router.patch("/:id", authenticate, authorizeRoles("super_admin", "admin"), zoneController.updateZone);
+
+// DELETE /zones/:id - Super admin or admin assigned to zone's plant (deactivates zone)
+router.delete("/:id", authenticate, authorizeRoles("super_admin", "admin"), zoneController.deleteZone);
 
 // Camera routes scoped under zone
 const cameraController = require("../controllers/camera-controller");
 
 // POST /zones/:zoneId/cameras - Super admin or admin assigned to the zone's plant
-router.post("/:zoneId/cameras", authenticate, cameraController.createCamera);
+router.post("/:zoneId/cameras", authenticate, authorizeRoles("super_admin", "admin"), cameraController.createCamera);
 
 // GET /zones/:zoneId/cameras - User assigned to the zone's plant or super admin
 router.get("/:zoneId/cameras", authenticate, cameraController.getCamerasByZone);
