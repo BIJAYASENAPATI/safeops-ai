@@ -1,62 +1,32 @@
 module.exports = (sequelize, DataTypes) => {
-  const User = sequelize.define( "User", {
-      id: {
-        type: DataTypes.INTEGER,
-        primaryKey: true,
-        autoIncrement: true,
-        allowNull: false,
-      },
-      plant_id: {
-        type: DataTypes.INTEGER,
-        allowNull: true,
-        references: {
-          model: "plants",
-          key: "id",
-        },
-        onUpdate: "CASCADE",
-        onDelete: "SET NULL",
-      },
-      name: {
-        type: DataTypes.STRING,
-        allowNull: false,
-      },
-      email: {
-        type: DataTypes.STRING,
-        allowNull: false,
-        unique: true,
-        validate: {
-          isEmail: true,
-        },
-      },
-      password_hash: {
-        type: DataTypes.STRING,
-        allowNull: true,
-      },
-      role: {
-        type: DataTypes.ENUM("operator", "manager", "admin", "super_admin"),
-        allowNull: false,
-        defaultValue: "operator",
-      },
-      invited_by: {
-        type: DataTypes.INTEGER,
-        allowNull: true,
-        references: {
-          model: "users",
-          key: "id",
-        },
-        onUpdate: "CASCADE",
-        onDelete: "SET NULL",
-      },
-      invite_status: {
-        type: DataTypes.ENUM("pending", "accepted"),
-        allowNull: false,
-        defaultValue: "pending",
-      },
-      last_login_at: {
-        type: DataTypes.DATE,
-        allowNull: true,
-      },
+  const User = sequelize.define("User", {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true, allowNull: false, },
+    plant_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: { model: "plants", key: "id", },
+      onUpdate: "CASCADE",
+      onDelete: "SET NULL",
     },
+    name: { type: DataTypes.STRING, allowNull: false, },
+    email: { type: DataTypes.STRING, allowNull: false, unique: true, validate: { isEmail: true, }, },
+    password_hash: { type: DataTypes.STRING, allowNull: true, },
+    role: {
+      type: DataTypes.ENUM("operator", "manager", "admin", "super_admin"),
+      allowNull: false,
+      defaultValue: "operator",
+    },
+    invited_by: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: { model: "users", key: "id", },
+      onUpdate: "CASCADE",
+      onDelete: "SET NULL",
+    },
+    invite_status: { type: DataTypes.ENUM("pending", "accepted"), allowNull: false, defaultValue: "pending", },
+    account_status: { type: DataTypes.ENUM("active", "disabled"), allowNull: false, defaultValue: "active", },
+    last_login_at: { type: DataTypes.DATE, allowNull: true, },
+  },
     {
       tableName: "users",
       timestamps: true,

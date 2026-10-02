@@ -17,11 +17,21 @@ router.get("/:id", authenticate, authorizePlant, plantController.getPlantById);
 // PATCH /plants/:id - super_admin only
 router.patch("/:id", authenticate, authorizeRoles("super_admin"), plantController.updatePlant);
 
+// Enable/disable plant - super_admin only, not operator
+router.patch("/:id/enable", authenticate, authorizeRoles("super_admin"), plantController.enablePlant);
+router.post("/:id/enable", authenticate, authorizeRoles("super_admin"), plantController.enablePlant);
+router.patch("/:id/disable", authenticate, authorizeRoles("super_admin"), plantController.disablePlant);
+router.post("/:id/disable", authenticate, authorizeRoles("super_admin"), plantController.disablePlant);
+router.patch("/:id/status", authenticate, authorizeRoles("super_admin"), plantController.updatePlantStatus);
+
+// DELETE /plants/:id - super_admin only (deactivate plant)
+router.delete("/:id", authenticate, authorizeRoles("super_admin"), plantController.deletePlant);
+
 // Zone routes scoped under plant
 const zoneController = require("../controllers/zone-controller");
 
 // POST /plants/:plantId/zones - Super admin or admin assigned to that plant
-router.post("/:plantId/zones", authenticate, zoneController.createZone);
+router.post("/:plantId/zones", authenticate, authorizeRoles("super_admin", "admin"), zoneController.createZone);
 
 // GET /plants/:plantId/zones - User assigned to that plant or super admin
 router.get("/:plantId/zones", authenticate, zoneController.getZonesByPlant);

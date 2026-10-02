@@ -10,6 +10,8 @@ const formatSafeUser = (user) => ({
   email: user.email,
   role: user.role,
   plant_id: user.plant_id,
+  account_status: user.account_status,
+  invite_status: user.invite_status,
 });
 
 //  POST /auth/login
@@ -46,6 +48,11 @@ const login = async (req, res) => {
       });
     }
 
+    // 2b. Reject disabled accounts
+    if (user.account_status === "disabled") {
+      return res.status(401).json({ error: "Account is disabled", message: "Account is disabled", });
+    }
+
     // 3. Compare password against password_hash
     const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
@@ -79,9 +86,9 @@ const acceptInvite = async (req, res) => {
     const { token, password } = req.body;
 
     if (!token || !password) {
-      return res.status(400).json({ 
-        error: "Token and password are required", 
-        message: "Token and password are required", 
+      return res.status(400).json({
+        error: "Token and password are required",
+        message: "Token and password are required",
       });
     }
 
@@ -171,9 +178,7 @@ const acceptInvite = async (req, res) => {
 
 const getMe = async (req, res) => {
   try {
-    return res.status(200).json({
-      user: formatSafeUser(req.user),
-    });
+    return res.status(200).json({ user: formatSafeUser(req.user), });
   } catch (error) {
     console.error("GetMe error:", error);
     return res.status(500).json({
