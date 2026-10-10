@@ -31,8 +31,17 @@ module.exports = (sequelize, DataTypes) => {
     invite_status: { type: DataTypes.ENUM("pending", "accepted"), allowNull: false, defaultValue: "pending", },
     account_status: { type: DataTypes.ENUM("active", "disabled"), allowNull: false, defaultValue: "active", },
     last_login_at: { type: DataTypes.DATE, allowNull: true, },
-    zone_id:{type:DataTypes.INTEGER,allowNull:true}
+    zone_id:{type:DataTypes.INTEGER,allowNull:true},
 
+    qr_identifier: {
+      type: DataTypes.STRING(64),
+      allowNull: true,
+      unique: true,
+    },
+    qr_generated_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
   },
     {
       tableName: "users",

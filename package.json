@@ -11,6 +11,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "nodemon index.js",
     "migrate": "node scripts/migrate-add-phone-number.js",
+    "migrate:qr": "node scripts/migrate-add-qr-fields.js",
+    "seed:qr": "node scripts/generate-existing-users-qr.js",
     "seed:admin": "node scripts/seed-super-admin.js"
   },
   "dependencies": {
@@ -22,6 +24,7 @@
     "multer": "^2.2.0",
     "mysql2": "^3.24.4",
     "nodemon": "^3.1.14",
+    "qrcode": "^1.5.4",
     "sequelize": "^6.37.8"
   }
 }

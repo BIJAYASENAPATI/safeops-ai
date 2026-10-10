@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const QRCode = require("qrcode");
 const { Op } = require("sequelize");
 const db = require("../db/db-connection");
 const { parsePagination, formatPaginatedResponse } = require("../utils/pagination");
@@ -14,6 +15,8 @@ const formatSafeUser = (user) => ({
   plant_id: user.plant_id,
   account_status: user.account_status,
   invite_status: user.invite_status,
+  ...(user.qr_identifier !== undefined && user.qr_identifier !== null ? { qr_identifier: user.qr_identifier } : {}),
+  ...(user.qr_generated_at !== undefined && user.qr_generated_at !== null ? { qr_generated_at: user.qr_generated_at } : {}),
   ...(user.invited_by !== undefined && user.invited_by !== null ? { invited_by: user.invited_by } : {}),
   ...(user.created_at ? { created_at: user.created_at } : {}),
   ...(user.updated_at ? { updated_at: user.updated_at } : {}),
@@ -622,4 +625,415 @@ const deleteUser = async (req, res) => {
   return disableUser(req, res);
 };
 
-module.exports = { inviteUser, listUsers, assignPlant, getUserById, updateUser, deleteUser, enableUser, disableUser, updateUserStatus, formatSafeUser, };
+// Helper: Check caller's permission to generate/fetch target user's QR
+const canAccessUserQR = (caller, targetUser) => {
+  if (!caller || !targetUser) return false;
+
+  // Super admin can access any eligible user
+  if (caller.role === "super_admin") {
+    return true;
+  }
+
+  // Any user can access their own QR
+  if (Number(caller.id) === Number(targetUser.id)) {
+    return true;
+  }
+
+  // Plant admin can access permitted users in their own plant
+  if (caller.role === "admin") {
+    // If admin is assigned to a plant, must match target user's plant
+    if (caller.plant_id && targetUser.plant_id) {
+      return Number(caller.plant_id) === Number(targetUser.plant_id);
+    }
+    // If admin has no specific plant assigned (system-wide admin), permitted
+    if (!caller.plant_id) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+// POST /users/:id/qr - Generate QR code for a user
+const generateUserQR = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id || isNaN(Number(id))) {
+      return res.status(400).json({
+        error: "Valid user ID is required",
+        message: "Valid user ID is required",
+      });
+    }
+
+    // Protect concurrent requests with a transaction and row lock
+    const transactionResult = await db.sequelize.transaction(async (t) => {
+      const user = await db.User.findByPk(id, {
+        lock: t.LOCK.UPDATE,
+        transaction: t,
+      });
+
+      if (!user) {
+        return { errorStatus: 404, errorMessage: "User not found" };
+      }
+
+      // Check caller permissions
+      if (!canAccessUserQR(req.user, user)) {
+        return {
+          errorStatus: 403,
+          errorMessage: "Forbidden: insufficient permissions to generate QR code for this user",
+        };
+      }
+
+      // Reject disabled users, pending invitees, and the system account
+      if (user.account_status === "disabled") {
+        return {
+          errorStatus: 400,
+          errorMessage: "Cannot generate QR code for disabled user account",
+        };
+      }
+
+      if (user.invite_status === "pending") {
+        return {
+          errorStatus: 400,
+          errorMessage: "Cannot generate QR code for pending user invitation",
+        };
+      }
+
+      if (user.role === "system") {
+        return {
+          errorStatus: 400,
+          errorMessage: "Cannot generate QR code for system account",
+        };
+      }
+
+      // Create a random identifier if one does not exist; if existing, reuse it
+      let qrIdentifier = user.qr_identifier;
+      let qrGeneratedAt = user.qr_generated_at;
+
+      if (!qrIdentifier) {
+        qrIdentifier = crypto.randomBytes(32).toString("hex");
+        qrGeneratedAt = new Date();
+        await user.update(
+          {
+            qr_identifier: qrIdentifier,
+            qr_generated_at: qrGeneratedAt,
+          },
+          { transaction: t }
+        );
+      }
+
+      return {
+        user_id: user.id,
+        qr_identifier: qrIdentifier,
+        generated_at: qrGeneratedAt,
+      };
+    });
+
+    if (transactionResult.errorStatus) {
+      return res.status(transactionResult.errorStatus).json({
+        error: transactionResult.errorMessage,
+        message: transactionResult.errorMessage,
+      });
+    }
+
+    // Generate PNG data URL
+    const qrCode = await QRCode.toDataURL(
+      `safeops:user:${transactionResult.qr_identifier}`,
+      {
+        errorCorrectionLevel: "M",
+        width: 300,
+        margin: 4,
+      }
+    );
+
+    return res.status(200).json({
+      user_id: transactionResult.user_id,
+      qr_code: qrCode,
+      generated_at: transactionResult.generated_at,
+    });
+  } catch (error) {
+    console.error("Generate user QR error:", error);
+    return res.status(500).json({
+      error: "Failed to generate user QR code",
+      message: error.message,
+    });
+  }
+};
+
+// GET /users/:id/qr - Fetch QR code for a user without changing identifier
+const getUserQR = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id || isNaN(Number(id))) {
+      return res.status(400).json({
+        error: "Valid user ID is required",
+        message: "Valid user ID is required",
+      });
+    }
+
+    const user = await db.User.findByPk(id);
+
+    if (!user) {
+      return res.status(404).json({
+        error: "User not found",
+        message: "User not found",
+      });
+    }
+
+    // Permissions check
+    if (!canAccessUserQR(req.user, user)) {
+      return res.status(403).json({
+        error: "Forbidden: insufficient permissions to access this user's QR code",
+        message: "Forbidden: you do not have permission to access this user's QR code",
+      });
+    }
+
+    // Reject disabled users, pending invitees, and system account
+    if (user.account_status === "disabled") {
+      return res.status(400).json({
+        error: "User account is disabled",
+        message: "Cannot access QR code for disabled user account",
+      });
+    }
+
+    if (user.invite_status === "pending") {
+      return res.status(400).json({
+        error: "User invitation is pending",
+        message: "Cannot access QR code for pending user invitation",
+      });
+    }
+
+    if (user.role === "system") {
+      return res.status(400).json({
+        error: "System account does not have a QR code",
+        message: "System account does not have a QR code",
+      });
+    }
+
+    if (!user.qr_identifier) {
+      return res.status(404).json({
+        error: "QR code not generated for this user",
+        message: "QR code not generated for this user",
+      });
+    }
+
+    // Regenerate PNG data URL from existing identifier
+    const qrCode = await QRCode.toDataURL(
+      `safeops:user:${user.qr_identifier}`,
+      {
+        errorCorrectionLevel: "M",
+        width: 300,
+        margin: 4,
+      }
+    );
+
+    return res.status(200).json({
+      user_id: user.id,
+      qr_code: qrCode,
+      generated_at: user.qr_generated_at,
+    });
+  } catch (error) {
+    console.error("Get user QR error:", error);
+    return res.status(500).json({
+      error: "Failed to fetch user QR code",
+      message: error.message,
+    });
+  }
+};
+
+// POST /users/qr/lookup - Identify scanned user and display safe details with plant scoping
+const lookupUserByQR = async (req, res) => {
+  try {
+    const { qr_identifier } = req.body;
+
+    if (!qr_identifier || typeof qr_identifier !== "string" || !qr_identifier.trim()) {
+      return res.status(400).json({
+        error: "qr_identifier is required",
+        message: "qr_identifier is required",
+      });
+    }
+
+    let cleanIdentifier = qr_identifier.trim();
+    if (cleanIdentifier.startsWith("safeops:user:")) {
+      cleanIdentifier = cleanIdentifier.slice("safeops:user:".length);
+    }
+
+    const user = await db.User.findOne({
+      where: { qr_identifier: cleanIdentifier },
+      include: [{ model: db.Plant, as: "plant" }],
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        error: "User not found for this QR code",
+        message: "User not found for this QR code",
+      });
+    }
+
+    // Lookup after user is disabled: Rejected
+    if (user.account_status === "disabled") {
+      return res.status(403).json({
+        error: "User account is disabled",
+        message: "User account is disabled",
+      });
+    }
+
+    if (user.invite_status === "pending") {
+      return res.status(400).json({
+        error: "User invitation is pending",
+        message: "User invitation is pending",
+      });
+    }
+
+    if (user.role === "system") {
+      return res.status(403).json({
+        error: "System user cannot be looked up via QR",
+        message: "System user cannot be looked up via QR",
+      });
+    }
+
+    // Require authentication and enforce plant permissions before returning safe user fields.
+    // Possessing the QR must not grant access to another plant’s data.
+    const isSuperAdmin = req.user.role === "super_admin";
+    const isSamePlant = req.user.plant_id && user.plant_id && Number(req.user.plant_id) === Number(user.plant_id);
+    const isSelf = Number(req.user.id) === Number(user.id);
+    const isUnassignedAdmin = req.user.role === "admin" && !req.user.plant_id;
+
+    if (!isSuperAdmin && !isSamePlant && !isSelf && !isUnassignedAdmin) {
+      return res.status(403).json({
+        error: "Forbidden: access to this user's data from another plant is not permitted",
+        message: "Forbidden: access to this user's data from another plant is not permitted",
+      });
+    }
+
+    return res.status(200).json({
+      message: "User lookup successful",
+      user: formatSafeUser(user),
+      ...formatSafeUser(user),
+    });
+  } catch (error) {
+    console.error("Lookup user by QR error:", error);
+    return res.status(500).json({
+      error: "Failed to lookup user by QR code",
+      message: error.message,
+    });
+  }
+};
+
+// POST /users/:id/qr/revoke or POST /users/:id/qr/regenerate
+const revokeOrRegenerateUserQR = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id || isNaN(Number(id))) {
+      return res.status(400).json({
+        error: "Valid user ID is required",
+        message: "Valid user ID is required",
+      });
+    }
+
+    const transactionResult = await db.sequelize.transaction(async (t) => {
+      const user = await db.User.findByPk(id, {
+        lock: t.LOCK.UPDATE,
+        transaction: t,
+      });
+
+      if (!user) {
+        return { errorStatus: 404, errorMessage: "User not found" };
+      }
+
+      if (!canAccessUserQR(req.user, user)) {
+        return {
+          errorStatus: 403,
+          errorMessage: "Forbidden: insufficient permissions to regenerate QR code for this user",
+        };
+      }
+
+      if (user.account_status === "disabled") {
+        return {
+          errorStatus: 400,
+          errorMessage: "Cannot regenerate QR code for disabled user account",
+        };
+      }
+
+      if (user.invite_status === "pending") {
+        return {
+          errorStatus: 400,
+          errorMessage: "Cannot regenerate QR code for pending user invitation",
+        };
+      }
+
+      if (user.role === "system") {
+        return {
+          errorStatus: 400,
+          errorMessage: "Cannot regenerate QR code for system account",
+        };
+      }
+
+      const newIdentifier = crypto.randomBytes(32).toString("hex");
+      const generatedAt = new Date();
+
+      await user.update(
+        {
+          qr_identifier: newIdentifier,
+          qr_generated_at: generatedAt,
+        },
+        { transaction: t }
+      );
+
+      return {
+        user_id: user.id,
+        qr_identifier: newIdentifier,
+        generated_at: generatedAt,
+      };
+    });
+
+    if (transactionResult.errorStatus) {
+      return res.status(transactionResult.errorStatus).json({
+        error: transactionResult.errorMessage,
+        message: transactionResult.errorMessage,
+      });
+    }
+
+    const qrCode = await QRCode.toDataURL(
+      `safeops:user:${transactionResult.qr_identifier}`,
+      {
+        errorCorrectionLevel: "M",
+        width: 300,
+        margin: 4,
+      }
+    );
+
+    return res.status(200).json({
+      message: "QR code regenerated successfully. Old QR code has been revoked.",
+      user_id: transactionResult.user_id,
+      qr_code: qrCode,
+      generated_at: transactionResult.generated_at,
+    });
+  } catch (error) {
+    console.error("Regenerate user QR error:", error);
+    return res.status(500).json({
+      error: "Failed to regenerate user QR code",
+      message: error.message,
+    });
+  }
+};
+
+module.exports = {
+  inviteUser,
+  listUsers,
+  assignPlant,
+  getUserById,
+  updateUser,
+  deleteUser,
+  enableUser,
+  disableUser,
+  updateUserStatus,
+  formatSafeUser,
+  generateUserQR,
+  getUserQR,
+  lookupUserByQR,
+  revokeOrRegenerateUserQR,
+};

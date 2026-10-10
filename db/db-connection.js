@@ -52,9 +52,9 @@ sequelize
     // 🚫 Disabled sync to avoid duplicate indexes issue
     // return sequelize.sync({ alter: true });
   })
-  // .then(() => {
-  //   console.log("✅ Models synchronized with DB");
-  // })
+  .then(() => {
+    console.log("✅ Models synchronized with DB");
+  })
   .catch((err) => {
     console.error("❌ Unable to connect to DB:", err);
   });

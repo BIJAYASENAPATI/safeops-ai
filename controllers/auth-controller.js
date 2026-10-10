@@ -185,6 +185,7 @@ const acceptInvite = async (req, res) => {
 
     // 5. Hash password with bcrypt
     const passwordHash = await bcrypt.hash(password, 10);
+    const qrIdentifier = crypto.randomBytes(32).toString("hex");
 
     // 6. Update user and token in one database transaction
     await db.sequelize.transaction(async (t) => {
@@ -194,7 +195,12 @@ const acceptInvite = async (req, res) => {
       );
 
       await invitation.user.update(
-        { password_hash: passwordHash, invite_status: "accepted", },
+        {
+          password_hash: passwordHash,
+          invite_status: "accepted",
+          qr_identifier: invitation.user.qr_identifier || qrIdentifier,
+          qr_generated_at: invitation.user.qr_generated_at || new Date(),
+        },
         { transaction: t }
       );
     });

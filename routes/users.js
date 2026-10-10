@@ -7,6 +7,14 @@ const authorizeRoles = require("../middleware/authorize-roles");
 router.post( "/invite", authenticate, authorizeRoles("super_admin", "admin"), userController.inviteUser );
 router.get( "/", authenticate, authorizeRoles("super_admin", "admin"), userController.listUsers );
 router.patch( "/plant/:id", authenticate, authorizeRoles("super_admin", "admin"), userController.assignPlant );
+router.patch( "/:id/plant", authenticate, authorizeRoles("super_admin", "admin"), userController.assignPlant );
+// QR code endpoints
+router.post( "/qr/lookup", authenticate, userController.lookupUserByQR );
+router.post( "/:id/qr/revoke", authenticate, userController.revokeOrRegenerateUserQR );
+router.post( "/:id/qr/regenerate", authenticate, userController.revokeOrRegenerateUserQR );
+router.post( "/:id/qr", authenticate, userController.generateUserQR );
+router.get( "/:id/qr", authenticate, userController.getUserQR );
+
 router.get( "/:id", authenticate, userController.getUserById );
 
 // Enable/disable user accounts - super_admin or admin only, not operator
