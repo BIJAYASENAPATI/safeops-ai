@@ -2,12 +2,14 @@ const crypto = require("crypto");
 const { Op } = require("sequelize");
 const db = require("../db/db-connection");
 const { parsePagination, formatPaginatedResponse } = require("../utils/pagination");
+const { normalizePhoneNumber, isValidPhoneNumber } = require("../utils/phone");
 
 // Returns safe user fields, strictly excluding sensitive attributes like password_hash.
 const formatSafeUser = (user) => ({
   id: user.id,
   name: user.name,
   email: user.email,
+  phone_number: user.phone_number !== undefined ? user.phone_number : null,
   role: user.role,
   plant_id: user.plant_id,
   account_status: user.account_status,
@@ -20,7 +22,7 @@ const formatSafeUser = (user) => ({
 // POST /users/invite
 const inviteUser = async (req, res) => {
   try {
-    const { name, email, role, plant_id } = req.body;
+    const { name, email, role, plant_id, phone_number } = req.body;
 
     // 1. Basic validation
     if (!name || !email || !role) {
@@ -37,6 +39,25 @@ const inviteUser = async (req, res) => {
         error: `Invalid role specified. Allowed roles: ${allowedRoles.join(", ")}`,
         message: `Invalid role specified. Allowed roles: ${allowedRoles.join(", ")}`,
       });
+    }
+
+    // 1b. Validate and normalize optional phone_number
+    let normalizedPhone = null;
+    if (phone_number !== undefined && phone_number !== null && phone_number !== "") {
+      normalizedPhone = normalizePhoneNumber(phone_number);
+      if (!isValidPhoneNumber(normalizedPhone)) {
+        return res.status(400).json({
+          error: "Invalid phone number format",
+          message: "Invalid phone number format. Please provide a valid phone number with country code.",
+        });
+      }
+      const existingPhone = await db.User.findOne({ where: { phone_number: normalizedPhone } });
+      if (existingPhone) {
+        return res.status(409).json({
+          error: "A user with this phone number already exists",
+          message: "A user with this phone number already exists",
+        });
+      }
     }
 
     // 2. Role-based inviter permissions
@@ -97,6 +118,7 @@ const inviteUser = async (req, res) => {
         {
           name,
           email,
+          phone_number: normalizedPhone,
           role: normalizedRole,
           plant_id: targetPlantId,
           password_hash: null,
@@ -166,6 +188,8 @@ const listUsers = async (req, res) => {
 
     if (req.query.role) {
       whereClause.role = req.query.role;
+    } else {
+      whereClause.role = { [Op.ne]: "system" };
     }
     if (req.query.invite_status) {
       whereClause.invite_status = req.query.invite_status;
@@ -178,13 +202,14 @@ const listUsers = async (req, res) => {
       whereClause[Op.or] = [
         { name: { [Op.like]: searchTerm } },
         { email: { [Op.like]: searchTerm } },
+        { phone_number: { [Op.like]: searchTerm } },
       ];
     }
 
     // 6. Use findAndCountAll({ where, limit, offset, order: [["id", "ASC"]] })
     const { count, rows } = await db.User.findAndCountAll({
       where: whereClause,
-      attributes: ["id", "name", "email", "role", "plant_id", "invite_status", "account_status"],
+      attributes: ["id", "name", "email", "phone_number", "role", "plant_id", "invite_status", "account_status"],
       limit,
       offset,
       order: [["id", "ASC"]],
@@ -286,6 +311,13 @@ const updateUser = async (req, res) => {
       return res.status(404).json({ error: "User not found", message: "User not found", });
     }
 
+    if (user.role === "system") {
+      return res.status(403).json({
+        error: "Forbidden: system account cannot be modified",
+        message: "Forbidden: system account cannot be modified",
+      });
+    }
+
     // Access check:
     // Super admin can manage all users.
     // Plant admin can manage managers/operators within their own plant.
@@ -313,7 +345,7 @@ const updateUser = async (req, res) => {
       }
     }
 
-    const { name, email, role, plant_id, account_status } = req.body;
+    const { name, email, role, plant_id, account_status, phone_number } = req.body;
     const updateData = {};
 
     // 1. Name update
@@ -345,6 +377,34 @@ const updateUser = async (req, res) => {
         }
       }
       updateData.email = normalizedEmail;
+    }
+
+    // 2b. Phone number update
+    if (phone_number !== undefined) {
+      if (phone_number === null || phone_number === "") {
+        updateData.phone_number = null;
+      } else {
+        const normalizedPhone = normalizePhoneNumber(phone_number);
+        if (!isValidPhoneNumber(normalizedPhone)) {
+          return res.status(400).json({
+            error: "Invalid phone number format",
+            message: "Invalid phone number format. Please provide a valid phone number with country code.",
+          });
+        }
+        const existingPhone = await db.User.findOne({
+          where: {
+            phone_number: normalizedPhone,
+            id: { [Op.ne]: user.id },
+          },
+        });
+        if (existingPhone) {
+          return res.status(409).json({
+            error: "A user with this phone number already exists",
+            message: "A user with this phone number already exists",
+          });
+        }
+        updateData.phone_number = normalizedPhone;
+      }
     }
 
     // 3. Role update (Instruction 6: Reserve role elevation for super admin)
@@ -459,6 +519,13 @@ const enableUser = async (req, res) => {
       });
     }
 
+    if (user.role === "system") {
+      return res.status(403).json({
+        error: "Forbidden: system account cannot be modified",
+        message: "Forbidden: system account cannot be modified",
+      });
+    }
+
     // Access check:
     // Super admin can enable any user
     // Plant admin can enable managers/operators within their own plant
@@ -506,6 +573,13 @@ const disableUser = async (req, res) => {
       return res.status(404).json({
         error: "User not found",
         message: "User not found",
+      });
+    }
+
+    if (user.role === "system") {
+      return res.status(403).json({
+        error: "Forbidden: system account cannot be modified",
+        message: "Forbidden: system account cannot be modified",
       });
     }
 

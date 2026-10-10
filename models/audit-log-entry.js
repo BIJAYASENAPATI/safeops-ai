@@ -9,31 +9,22 @@ module.exports = (sequelize, DataTypes) => {
     incident_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      references: {
-        model: "incidents",
-        key: "id",
-      },
+      references: { model: "incidents", key: "id", },
       onUpdate: "CASCADE",
       onDelete: "CASCADE",
     },
     actor_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      references: {
-        model: "users",
-        key: "id",
-      },
+      references: { model: "users", key: "id", },
       onUpdate: "CASCADE",
       onDelete: "RESTRICT",
     },
     action: {
-      type: DataTypes.ENUM("acknowledged", "escalated", "resolved", "dismissed"),
+      type: DataTypes.ENUM("acknowledged", "escalated", "resolved", "dismissed", "escalation_error"),
       allowNull: false,
     },
-    metadata: {
-      type: DataTypes.JSON,
-      allowNull: true,
-    },
+    metadata: { type: DataTypes.JSON, allowNull: true, },
   },
     {
       tableName: "audit_log_entries",

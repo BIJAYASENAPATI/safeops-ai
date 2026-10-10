@@ -9,25 +9,16 @@ module.exports = (sequelize, DataTypes) => {
     plant_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      references: {
-        model: "plants",
-        key: "id",
-      },
+      references: { model: "plants", key: "id", },
       onUpdate: "CASCADE",
       onDelete: "RESTRICT",
     },
-    name: {
-      type: DataTypes.STRING,
-      allowNull: false,
-    },
+    name: { type: DataTypes.STRING, allowNull: false, },
     severity_level: {
       type: DataTypes.ENUM("low", "medium", "high", "critical"),
       allowNull: false,
     },
-    operating_schedule: {
-      type: DataTypes.JSON,
-      allowNull: true,
-    },
+    operating_schedule: { type: DataTypes.JSON, allowNull: true, },
     status: {
       type: DataTypes.ENUM("active", "inactive"),
       allowNull: false,
@@ -46,6 +37,7 @@ module.exports = (sequelize, DataTypes) => {
     Zone.hasMany(models.Camera, { foreignKey: "zone_id", as: "cameras", });
     Zone.hasMany(models.Incident, { foreignKey: "zone_id", as: "incidents", });
     Zone.hasMany(models.EscalationRule, { foreignKey: "zone_id", as: "escalation_rules", });
+    Zone.hasMany(models.ZoneSafetyRule, { foreignKey: "zone_id", as: "safety_rules", });
   };
 
   return Zone;

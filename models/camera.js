@@ -35,6 +35,9 @@ module.exports = (sequelize, DataTypes) => {
   Camera.associate = (models) => {
     Camera.belongsTo(models.Zone, { foreignKey: "zone_id", as: "zone", });
     Camera.hasMany(models.Incident, { foreignKey: "camera_id", as: "incidents", });
+    Camera.hasMany(models.CameraRegion, { foreignKey: "camera_id", as: "regions", });
+    Camera.hasMany(models.VideoSource, { foreignKey: "camera_id", as: "video_sources", });
+    Camera.hasMany(models.DetectionEvent, { foreignKey: "camera_id", as: "detection_events", });
   };
 
   return Camera;

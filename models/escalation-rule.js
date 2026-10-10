@@ -1,18 +1,10 @@
 module.exports = (sequelize, DataTypes) => {
   const EscalationRule = sequelize.define("EscalationRule", {
-    id: {
-      type: DataTypes.INTEGER,
-      primaryKey: true,
-      autoIncrement: true,
-      allowNull: false,
-    },
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true, allowNull: false, },
     zone_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      references: {
-        model: "zones",
-        key: "id",
-      },
+      references: { model: "zones", key: "id", },
       onUpdate: "CASCADE",
       onDelete: "CASCADE",
     },
@@ -23,20 +15,16 @@ module.exports = (sequelize, DataTypes) => {
     timeout_minutes: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      validate: {
-        min: 1,
-      },
+      validate: { min: 1, },
     },
     escalation_contact_id: {
       type: DataTypes.INTEGER,
       allowNull: false,
-      references: {
-        model: "users",
-        key: "id",
-      },
+      references: { model: "users", key: "id", },
       onUpdate: "CASCADE",
       onDelete: "RESTRICT",
     },
+    is_active: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true, },
   },
     {
       tableName: "escalation_rules",
@@ -48,6 +36,7 @@ module.exports = (sequelize, DataTypes) => {
   EscalationRule.associate = (models) => {
     EscalationRule.belongsTo(models.Zone, { foreignKey: "zone_id", as: "zone", });
     EscalationRule.belongsTo(models.User, { foreignKey: "escalation_contact_id", as: "escalation_contact", });
+    EscalationRule.hasMany(models.Incident, { foreignKey: "escalation_rule_id", as: "incidents", });
   };
 
   return EscalationRule;

@@ -10,9 +10,14 @@ module.exports = (sequelize, DataTypes) => {
     },
     name: { type: DataTypes.STRING, allowNull: false, },
     email: { type: DataTypes.STRING, allowNull: false, unique: true, validate: { isEmail: true, }, },
+    phone_number: {
+      type: DataTypes.STRING(20),
+      allowNull: true,
+      unique: true,
+    },
     password_hash: { type: DataTypes.STRING, allowNull: true, },
     role: {
-      type: DataTypes.ENUM("operator", "manager", "admin", "super_admin"),
+      type: DataTypes.ENUM("operator", "manager", "admin", "super_admin", "system"),
       allowNull: false,
       defaultValue: "operator",
     },
@@ -42,6 +47,7 @@ module.exports = (sequelize, DataTypes) => {
     User.hasMany(models.AuditLogEntry, { foreignKey: "actor_id", as: "audit_log_entries", });
     User.hasMany(models.User, { foreignKey: "invited_by", as: "invitees", });
     User.hasMany(models.InvitationToken, { foreignKey: "user_id", as: "invitation_tokens", });
+    User.hasMany(models.Notification, { foreignKey: "recipient_id", as: "notifications", });
   };
 
   return User;

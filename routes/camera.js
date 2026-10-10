@@ -20,4 +20,22 @@ router.patch("/:id", authenticate, authorizeRoles("super_admin", "admin"), camer
 // DELETE /cameras/:id - Super admin or admin assigned to that plant (disables camera)
 router.delete("/:id", authenticate, authorizeRoles("super_admin", "admin"), cameraController.deleteCamera);
 
+// CameraRegion routes scoped under camera
+const cameraRegionController = require("../controllers/camera-region-controller");
+
+// POST /cameras/:cameraId/regions - Super admin or admin assigned to that plant
+router.post("/:cameraId/regions", authenticate, authorizeRoles("super_admin", "admin"), cameraRegionController.createCameraRegion);
+
+// GET /cameras/:cameraId/regions - User assigned to camera's plant or super admin
+router.get("/:cameraId/regions", authenticate, cameraRegionController.getRegionsByCamera);
+
+// VideoSource routes scoped under camera
+const videoSourceController = require("../controllers/video-source-controller");
+
+// POST /cameras/:cameraId/videos - Upload video for camera
+router.post("/:cameraId/videos", authenticate, videoSourceController.uploadVideo);
+
+// GET /cameras/:cameraId/videos - List videos for camera
+router.get("/:cameraId/videos", authenticate, videoSourceController.getVideosByCamera);
+
 module.exports = router;
