@@ -55,16 +55,14 @@ const createSafetyRule = async (req, res) => {
       });
     }
 
-    // 2. Permission check: super_admin or admin of that plant
+    // 2. Permission check: super_admin or admin
     const isSuperAdmin = req.user.role === "super_admin";
-    const isPlantAdmin =
-      req.user.role === "admin" &&
-      Number(req.user.plant_id) === Number(zone.plant_id);
+    const isAdmin = req.user.role === "admin";
 
-    if (!isSuperAdmin && !isPlantAdmin) {
+    if (!isSuperAdmin && !isAdmin) {
       return res.status(403).json({
-        error: "Forbidden: only super_admin or admin assigned to this plant can configure safety rules",
-        message: "Forbidden: only super_admin or admin assigned to this plant can configure safety rules",
+        error: "Forbidden: only super_admin or admin can configure safety rules",
+        message: "Forbidden: only super_admin or admin can configure safety rules",
       });
     }
 
@@ -216,9 +214,10 @@ const getSafetyRulesByZone = async (req, res) => {
     }
 
     const isSuperAdmin = req.user.role === "super_admin";
+    const isAdmin = req.user.role === "admin";
     const isAssigned = Number(req.user.plant_id) === Number(zone.plant_id);
 
-    if (!isSuperAdmin && !isAssigned) {
+    if (!isSuperAdmin && !isAdmin && !isAssigned) {
       return res.status(403).json({
         error: "Forbidden: you do not have access to this zone's safety rules",
         message: "Forbidden: you do not have access to this zone's safety rules",
@@ -271,10 +270,11 @@ const listSafetyRules = async (req, res) => {
     const { page, limit, offset } = pagination;
 
     const isSuperAdmin = req.user.role === "super_admin";
+    const isAdmin = req.user.role === "admin";
     const userPlantId = req.user.plant_id;
 
     const zoneWhere = {};
-    if (!isSuperAdmin) {
+    if (!isSuperAdmin && !isAdmin) {
       if (!userPlantId) {
         return res.status(403).json({
           error: "Forbidden: user is not assigned to any plant",
@@ -355,10 +355,11 @@ const getSafetyRuleById = async (req, res) => {
     }
 
     const isSuperAdmin = req.user.role === "super_admin";
+    const isAdmin = req.user.role === "admin";
     const isAssigned =
       rule.zone && Number(req.user.plant_id) === Number(rule.zone.plant_id);
 
-    if (!isSuperAdmin && !isAssigned) {
+    if (!isSuperAdmin && !isAdmin && !isAssigned) {
       return res.status(403).json({
         error: "Forbidden: you do not have access to this safety rule",
         message: "Forbidden: you do not have access to this safety rule",
@@ -394,15 +395,12 @@ const updateSafetyRule = async (req, res) => {
 
     // Permission check
     const isSuperAdmin = req.user.role === "super_admin";
-    const isPlantAdmin =
-      req.user.role === "admin" &&
-      rule.zone &&
-      Number(req.user.plant_id) === Number(rule.zone.plant_id);
+    const isAdmin = req.user.role === "admin";
 
-    if (!isSuperAdmin && !isPlantAdmin) {
+    if (!isSuperAdmin && !isAdmin) {
       return res.status(403).json({
-        error: "Forbidden: only super_admin or admin assigned to this plant can update safety rules",
-        message: "Forbidden: only super_admin or admin assigned to this plant can update safety rules",
+        error: "Forbidden: only super_admin or admin can update safety rules",
+        message: "Forbidden: only super_admin or admin can update safety rules",
       });
     }
 
@@ -587,15 +585,12 @@ const deleteSafetyRule = async (req, res) => {
     }
 
     const isSuperAdmin = req.user.role === "super_admin";
-    const isPlantAdmin =
-      req.user.role === "admin" &&
-      rule.zone &&
-      Number(req.user.plant_id) === Number(rule.zone.plant_id);
+    const isAdmin = req.user.role === "admin";
 
-    if (!isSuperAdmin && !isPlantAdmin) {
+    if (!isSuperAdmin && !isAdmin) {
       return res.status(403).json({
-        error: "Forbidden: only super_admin or admin assigned to this plant can disable safety rules",
-        message: "Forbidden: only super_admin or admin assigned to this plant can disable safety rules",
+        error: "Forbidden: only super_admin or admin can disable safety rules",
+        message: "Forbidden: only super_admin or admin can disable safety rules",
       });
     }
 

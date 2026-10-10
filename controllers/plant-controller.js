@@ -62,7 +62,7 @@ const getAllPlants = async (req, res) => {
     // 5. Apply plant permissions, search, and other filters
     let whereClause = {};
 
-    if (req.user.role !== "super_admin") {
+    if (req.user.role !== "super_admin" && req.user.role !== "admin") {
       if (!req.user.plant_id) {
         return res.status(200).json(formatPaginatedResponse([], 0, page, limit));
       }
@@ -194,10 +194,10 @@ const enablePlant = async (req, res) => {
       });
     }
 
-    if (req.user.role !== "super_admin") {
+    if (req.user.role !== "super_admin" && req.user.role !== "admin") {
       return res.status(403).json({
-        error: "Forbidden: only super_admin can enable plants",
-        message: "Forbidden: only super_admin can enable plants",
+        error: "Forbidden: insufficient permissions",
+        message: "Forbidden: only admin or super_admin can enable plants",
       });
     }
 
@@ -237,10 +237,10 @@ const disablePlant = async (req, res) => {
       });
     }
 
-    if (req.user.role !== "super_admin") {
+    if (req.user.role !== "super_admin" && req.user.role !== "admin") {
       return res.status(403).json({
-        error: "Forbidden: only super_admin can disable plants",
-        message: "Forbidden: only super_admin can disable plants",
+        error: "Forbidden: insufficient permissions",
+        message: "Forbidden: only admin or super_admin can disable plants",
       });
     }
 

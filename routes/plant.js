@@ -5,27 +5,27 @@ const authenticate = require("../middleware/authenticate");
 const authorizeRoles = require("../middleware/authorize-roles");
 const authorizePlant = require("../middleware/authorize-plant");
 
-// POST /plants - super_admin only
-router.post("/", authenticate, authorizeRoles("super_admin"), plantController.createPlant);
+// POST /plants - super_admin or admin
+router.post("/", authenticate, authorizeRoles("super_admin", "admin"), plantController.createPlant);
 
-// GET /plants - Signed-in user (super_admin sees all; other users see only assigned plant)
+// GET /plants - Signed-in user (admin and super_admin see all; other users see only assigned plant)
 router.get("/", authenticate, plantController.getAllPlants);
 
-// GET /plants/:id - Assigned user or super_admin
+// GET /plants/:id - Assigned user, admin, or super_admin
 router.get("/:id", authenticate, authorizePlant, plantController.getPlantById);
 
-// PATCH /plants/:id - super_admin only
-router.patch("/:id", authenticate, authorizeRoles("super_admin"), plantController.updatePlant);
+// PATCH /plants/:id - super_admin or admin
+router.patch("/:id", authenticate, authorizeRoles("super_admin", "admin"), plantController.updatePlant);
 
-// Enable/disable plant - super_admin only, not operator
-router.patch("/:id/enable", authenticate, authorizeRoles("super_admin"), plantController.enablePlant);
-router.post("/:id/enable", authenticate, authorizeRoles("super_admin"), plantController.enablePlant);
-router.patch("/:id/disable", authenticate, authorizeRoles("super_admin"), plantController.disablePlant);
-router.post("/:id/disable", authenticate, authorizeRoles("super_admin"), plantController.disablePlant);
-router.patch("/:id/status", authenticate, authorizeRoles("super_admin"), plantController.updatePlantStatus);
+// Enable/disable plant - super_admin or admin
+router.patch("/:id/enable", authenticate, authorizeRoles("super_admin", "admin"), plantController.enablePlant);
+router.post("/:id/enable", authenticate, authorizeRoles("super_admin", "admin"), plantController.enablePlant);
+router.patch("/:id/disable", authenticate, authorizeRoles("super_admin", "admin"), plantController.disablePlant);
+router.post("/:id/disable", authenticate, authorizeRoles("super_admin", "admin"), plantController.disablePlant);
+router.patch("/:id/status", authenticate, authorizeRoles("super_admin", "admin"), plantController.updatePlantStatus);
 
-// DELETE /plants/:id - super_admin only (deactivate plant)
-router.delete("/:id", authenticate, authorizeRoles("super_admin"), plantController.deletePlant);
+// DELETE /plants/:id - super_admin or admin (deactivate plant)
+router.delete("/:id", authenticate, authorizeRoles("super_admin", "admin"), plantController.deletePlant);
 
 // Zone routes scoped under plant
 const zoneController = require("../controllers/zone-controller");

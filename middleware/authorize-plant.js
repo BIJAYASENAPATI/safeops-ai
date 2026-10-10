@@ -1,12 +1,12 @@
 function canAccessPlant(user, targetPlantId) {
   if (!user) return false;
 
-  // super_admin can access any plant
-  if (user.role === "super_admin") {
+  // super_admin and admin can access any plant
+  if (user.role === "super_admin" || user.role === "admin") {
     return true;
   }
 
-  // Non-super_admin with null plant_id is denied plant-scoped access
+  // Non-admin with null plant_id is denied plant-scoped access
   if (user.plant_id === null || user.plant_id === undefined) {
     return false;
   }
@@ -26,12 +26,12 @@ function handlePlantCheck(req, res, next, extractPlantId) {
     return res.status(401).json({ error: "Authentication required", message: "Authentication required", });
   }
 
-  // super_admin: can access any plant
-  if (req.user.role === "super_admin") {
+  // super_admin and admin: can access any plant
+  if (req.user.role === "super_admin" || req.user.role === "admin") {
     return next();
   }
 
-  // If plant_id is null, deny plant-scoped access unless the user is super_admin
+  // If plant_id is null, deny plant-scoped access
   if (req.user.plant_id === null || req.user.plant_id === undefined) {
     return res.status(403).json({
       error: "Forbidden: user is not assigned to any plant",
@@ -54,7 +54,7 @@ function handlePlantCheck(req, res, next, extractPlantId) {
       req.query?.plant_id;
   }
 
-  // admin, manager, operator: can access only their assigned plant_id
+  // manager, operator: can access only their assigned plant_id
   if (targetPlantId !== undefined && targetPlantId !== null && targetPlantId !== "") {
     if (Number(req.user.plant_id) !== Number(targetPlantId)) {
       return res.status(403).json({

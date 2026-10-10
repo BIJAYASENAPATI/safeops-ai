@@ -2,19 +2,26 @@ const { Op } = require("sequelize");
 const db = require("../db/db-connection");
 const { parsePagination, formatPaginatedResponse } = require("../utils/pagination");
 
-//  POST /plants/:plantId/zones -  Access: Super admin or admin assigned to that plant
+//  POST /plants/:plantId/zones or POST /zones - Access: Super admin or admin
 const createZone = async (req, res) => {
   try {
-    const { plantId } = req.params;
+    const plantId = req.params.plantId || req.body.plant_id || req.body.plantId;
 
-    // 1. Role & plant permission check
+    if (!plantId) {
+      return res.status(400).json({
+        error: "plant_id is required",
+        message: "plant_id is required",
+      });
+    }
+
+    // 1. Role permission check: super_admin or admin can create zones under any plant
     const isSuperAdmin = req.user.role === "super_admin";
-    const isPlantAdmin = req.user.role === "admin" && Number(req.user.plant_id) === Number(plantId);
+    const isAdmin = req.user.role === "admin";
 
-    if (!isSuperAdmin && !isPlantAdmin) {
+    if (!isSuperAdmin && !isAdmin) {
       return res.status(403).json({
-        error: "Forbidden: only super_admin or assigned plant admin can create zones",
-        message: "Forbidden: only super_admin or assigned plant admin can create zones",
+        error: "Forbidden: only super_admin or admin can create zones",
+        message: "Forbidden: only super_admin or admin can create zones",
       });
     }
 
@@ -35,7 +42,7 @@ const createZone = async (req, res) => {
     }
 
     // 3. Validation
-    const { name, severity_level, operating_schedule, status } = req.body;
+    const { name, severity_level, type, operating_schedule, boundaries, coordinates, polygon, status } = req.body;
 
     if (!name || typeof name !== "string" || !name.trim()) {
       return res.status(400).json({
@@ -44,8 +51,9 @@ const createZone = async (req, res) => {
       });
     }
 
+    const targetSeverity = severity_level || type;
     const allowedSeverities = ["low", "medium", "high", "critical"];
-    if (!severity_level || !allowedSeverities.includes(severity_level)) {
+    if (!targetSeverity || !allowedSeverities.includes(targetSeverity)) {
       return res.status(400).json({
         error: `severity_level must be one of: ${allowedSeverities.join(", ")}`,
         message: `severity_level must be one of: ${allowedSeverities.join(", ")}`,
@@ -59,12 +67,22 @@ const createZone = async (req, res) => {
       });
     }
 
-    // 4. Create zone (plant_id taken strictly from req.params.plantId)
+    let finalSchedule = operating_schedule !== undefined ? operating_schedule : null;
+    const boundData = boundaries || coordinates || polygon;
+    if (boundData !== undefined) {
+      if (typeof finalSchedule === "object" && finalSchedule !== null) {
+        finalSchedule = { ...finalSchedule, boundaries: boundData };
+      } else {
+        finalSchedule = { schedule: finalSchedule, boundaries: boundData };
+      }
+    }
+
+    // 4. Create zone
     const zone = await db.Zone.create({
       plant_id: Number(plantId),
       name: name.trim(),
-      severity_level,
-      operating_schedule: operating_schedule !== undefined ? operating_schedule : null,
+      severity_level: targetSeverity,
+      operating_schedule: finalSchedule,
       status: status || "active",
     });
 
@@ -75,7 +93,55 @@ const createZone = async (req, res) => {
   }
 };
 
-// GET /plants/:plantId/zones -  Access: User assigned to that plant or super admin
+// GET /zones - Access: Signed-in user (admin & super_admin see all zones, other users see assigned plant's zones)
+const listZones = async (req, res) => {
+  try {
+    const pagination = parsePagination(req.query);
+    if (pagination.error) {
+      return res.status(400).json({ error: pagination.error, message: pagination.error, });
+    }
+    const { page, limit, offset } = pagination;
+
+    let whereClause = {};
+
+    const isSuperAdmin = req.user.role === "super_admin";
+    const isAdmin = req.user.role === "admin";
+
+    if (!isSuperAdmin && !isAdmin) {
+      if (!req.user.plant_id) {
+        return res.status(200).json(formatPaginatedResponse([], 0, page, limit));
+      }
+      whereClause.plant_id = req.user.plant_id;
+    } else if (req.query.plant_id) {
+      whereClause.plant_id = req.query.plant_id;
+    }
+
+    if (req.query.status) {
+      whereClause.status = req.query.status;
+    }
+    if (req.query.severity_level) {
+      whereClause.severity_level = req.query.severity_level;
+    }
+    if (req.query.search && req.query.search.trim()) {
+      whereClause.name = { [Op.like]: `%${req.query.search.trim()}%` };
+    }
+
+    const { count, rows } = await db.Zone.findAndCountAll({
+      where: whereClause,
+      include: [{ model: db.Plant, as: "plant" }],
+      limit,
+      offset,
+      order: [["id", "ASC"]],
+    });
+
+    return res.status(200).json(formatPaginatedResponse(rows, count, page, limit));
+  } catch (error) {
+    console.error("List zones error:", error);
+    return res.status(500).json({ error: "Failed to retrieve zones", message: error.message });
+  }
+};
+
+// GET /plants/:plantId/zones - Access: User assigned to that plant, admin, or super admin
 const getZonesByPlant = async (req, res) => {
   try {
     // 1-4. Read, validate and calculate pagination parameters
@@ -89,9 +155,10 @@ const getZonesByPlant = async (req, res) => {
 
     // 5. Apply plant permissions, search, and other filters
     const isSuperAdmin = req.user.role === "super_admin";
+    const isAdmin = req.user.role === "admin";
     const isAssigned = Number(req.user.plant_id) === Number(plantId);
 
-    if (!isSuperAdmin && !isAssigned) {
+    if (!isSuperAdmin && !isAdmin && !isAssigned) {
       return res.status(403).json({
         error: "Forbidden: access to this plant's zones is not permitted",
         message: "Forbidden: access to this plant's zones is not permitted",
@@ -130,20 +197,23 @@ const getZonesByPlant = async (req, res) => {
   }
 };
 
-//  GET /zones/:id -  Access: User assigned to the zone's plant or super admin
+//  GET /zones/:id - Access: User assigned to the zone's plant, admin, or super admin
 const getZoneById = async (req, res) => {
   try {
     const { id } = req.params;
-    const zone = await db.Zone.findByPk(id);
+    const zone = await db.Zone.findByPk(id, {
+      include: [{ model: db.Plant, as: "plant" }],
+    });
 
     if (!zone) {
       return res.status(404).json({ error: "Zone not found", message: `Zone with ID ${id} not found`, });
     }
 
     const isSuperAdmin = req.user.role === "super_admin";
+    const isAdmin = req.user.role === "admin";
     const isAssigned = Number(req.user.plant_id) === Number(zone.plant_id);
 
-    if (!isSuperAdmin && !isAssigned) {
+    if (!isSuperAdmin && !isAdmin && !isAssigned) {
       return res.status(403).json({
         error: "Forbidden: you do not have access to this zone",
         message: "Forbidden: you do not have access to this zone",
@@ -157,7 +227,7 @@ const getZoneById = async (req, res) => {
   }
 };
 
-//  PATCH /zones/:id -  Access: Super admin or admin assigned to the zone's plant
+//  PATCH /zones/:id - Access: Super admin or admin
 const updateZone = async (req, res) => {
   try {
     const { id } = req.params;
@@ -168,24 +238,34 @@ const updateZone = async (req, res) => {
     }
 
     const isSuperAdmin = req.user.role === "super_admin";
-    const isPlantAdmin = req.user.role === "admin" && Number(req.user.plant_id) === Number(zone.plant_id);
+    const isAdmin = req.user.role === "admin";
 
-    if (!isSuperAdmin && !isPlantAdmin) {
+    if (!isSuperAdmin && !isAdmin) {
       return res.status(403).json({
-        error: "Forbidden: only super_admin or assigned plant admin can update this zone",
-        message: "Forbidden: only super_admin or assigned plant admin can update this zone",
+        error: "Forbidden: only super_admin or admin can update this zone",
+        message: "Forbidden: only super_admin or admin can update this zone",
       });
     }
 
-    if (req.body.plant_id !== undefined) {
-      return res.status(400).json({
-        error: "plant_id cannot be modified via ordinary zone updates",
-        message: "plant_id cannot be modified via ordinary zone updates",
-      });
-    }
-
-    const { name, severity_level, operating_schedule, status } = req.body;
+    const { name, severity_level, type, operating_schedule, boundaries, coordinates, polygon, status, plant_id } = req.body;
     const updateData = {};
+
+    if (plant_id !== undefined) {
+      const targetPlant = await db.Plant.findByPk(plant_id);
+      if (!targetPlant) {
+        return res.status(404).json({
+          error: "Plant not found",
+          message: `Plant with ID ${plant_id} not found`,
+        });
+      }
+      if (targetPlant.status !== "active") {
+        return res.status(400).json({
+          error: "Cannot move zone to an inactive plant",
+          message: "Cannot move zone to an inactive plant",
+        });
+      }
+      updateData.plant_id = Number(plant_id);
+    }
 
     if (name !== undefined) {
       if (typeof name !== "string" || !name.trim()) {
@@ -197,19 +277,31 @@ const updateZone = async (req, res) => {
       updateData.name = name.trim();
     }
 
-    if (severity_level !== undefined) {
+    const targetSeverity = severity_level !== undefined ? severity_level : type;
+    if (targetSeverity !== undefined) {
       const allowedSeverities = ["low", "medium", "high", "critical"];
-      if (!allowedSeverities.includes(severity_level)) {
+      if (!allowedSeverities.includes(targetSeverity)) {
         return res.status(400).json({
           error: `severity_level must be one of: ${allowedSeverities.join(", ")}`,
           message: `severity_level must be one of: ${allowedSeverities.join(", ")}`,
         });
       }
-      updateData.severity_level = severity_level;
+      updateData.severity_level = targetSeverity;
     }
 
     if (operating_schedule !== undefined) {
       updateData.operating_schedule = operating_schedule;
+    }
+
+    const boundData = boundaries || coordinates || polygon;
+    if (boundData !== undefined) {
+      let sched = updateData.operating_schedule !== undefined ? updateData.operating_schedule : zone.operating_schedule;
+      if (typeof sched === "string") {
+        try { sched = JSON.parse(sched); } catch (e) { sched = {}; }
+      } else if (!sched || typeof sched !== "object") {
+        sched = {};
+      }
+      updateData.operating_schedule = { ...sched, boundaries: boundData };
     }
 
     if (status !== undefined) {
@@ -234,7 +326,7 @@ const updateZone = async (req, res) => {
   }
 };
 
-// PATCH/POST /zones/:id/enable - Access: Super admin or admin assigned to zone's plant
+// PATCH/POST /zones/:id/enable - Access: Super admin or admin
 const enableZone = async (req, res) => {
   try {
     const { id } = req.params;
@@ -255,12 +347,12 @@ const enableZone = async (req, res) => {
     }
 
     const isSuperAdmin = req.user.role === "super_admin";
-    const isPlantAdmin = req.user.role === "admin" && Number(req.user.plant_id) === Number(zone.plant_id);
+    const isAdmin = req.user.role === "admin";
 
-    if (!isSuperAdmin && !isPlantAdmin) {
+    if (!isSuperAdmin && !isAdmin) {
       return res.status(403).json({
-        error: "Forbidden: only super_admin or assigned plant admin can enable this zone",
-        message: "Forbidden: only super_admin or assigned plant admin can enable this zone",
+        error: "Forbidden: only super_admin or admin can enable this zone",
+        message: "Forbidden: only super_admin or admin can enable this zone",
       });
     }
 
@@ -286,7 +378,7 @@ const enableZone = async (req, res) => {
   }
 };
 
-// PATCH/POST /zones/:id/disable - Access: Super admin or admin assigned to zone's plant
+// PATCH/POST /zones/:id/disable - Access: Super admin or admin
 const disableZone = async (req, res) => {
   try {
     const { id } = req.params;
@@ -305,12 +397,12 @@ const disableZone = async (req, res) => {
     }
 
     const isSuperAdmin = req.user.role === "super_admin";
-    const isPlantAdmin = req.user.role === "admin" && Number(req.user.plant_id) === Number(zone.plant_id);
+    const isAdmin = req.user.role === "admin";
 
-    if (!isSuperAdmin && !isPlantAdmin) {
+    if (!isSuperAdmin && !isAdmin) {
       return res.status(403).json({
-        error: "Forbidden: only super_admin or assigned plant admin can disable this zone",
-        message: "Forbidden: only super_admin or assigned plant admin can disable this zone",
+        error: "Forbidden: only super_admin or admin can disable this zone",
+        message: "Forbidden: only super_admin or admin can disable this zone",
       });
     }
 
@@ -343,9 +435,9 @@ const updateZoneStatus = async (req, res) => {
   }
 };
 
-// DELETE /zones/:id - Access: Super admin or admin assigned to zone's plant (sets status: "inactive")
+// DELETE /zones/:id - Access: Super admin or admin (sets status: "inactive")
 const deleteZone = async (req, res) => {
   return disableZone(req, res);
 };
 
-module.exports = { createZone, getZonesByPlant, getZoneById, updateZone, deleteZone, enableZone, disableZone, updateZoneStatus, };
+module.exports = { createZone, listZones, getZonesByPlant, getZoneById, updateZone, deleteZone, enableZone, disableZone, updateZoneStatus, };
