@@ -4,7 +4,13 @@ const zoneController = require("../controllers/zone-controller");
 const authenticate = require("../middleware/authenticate");
 const authorizeRoles = require("../middleware/authorize-roles");
 
-// GET /zones/:id - User assigned to zone's plant or super admin
+// GET /zones - List zones (admin/super_admin sees all; others see assigned plant)
+router.get("/", authenticate, zoneController.listZones);
+
+// POST /zones - Super admin or admin creates zone under any plant
+router.post("/", authenticate, authorizeRoles("super_admin", "admin"), zoneController.createZone);
+
+// GET /zones/:id - User assigned to zone's plant, admin, or super admin
 router.get("/:id", authenticate, zoneController.getZoneById);
 
 // Enable/disable zone - Super admin or admin assigned to zone's plant, not operator

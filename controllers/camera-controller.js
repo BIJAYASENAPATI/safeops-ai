@@ -2,10 +2,17 @@ const { Op } = require("sequelize");
 const db = require("../db/db-connection");
 const { parsePagination, formatPaginatedResponse } = require("../utils/pagination");
 
-//  POST /zones/:zoneId/cameras - Access: Super admin or admin assigned to the zone's plant
+//  POST /zones/:zoneId/cameras or POST /cameras - Access: Super admin or admin
 const createCamera = async (req, res) => {
   try {
-    const { zoneId } = req.params;
+    const zoneId = req.params.zoneId || req.body.zone_id || req.body.zoneId;
+
+    if (!zoneId) {
+      return res.status(400).json({
+        error: "zone_id is required",
+        message: "zone_id is required",
+      });
+    }
 
     // 1. Load zone and its plant
     const zone = await db.Zone.findByPk(zoneId, {
@@ -34,16 +41,14 @@ const createCamera = async (req, res) => {
       });
     }
 
-    // 2. Access check
+    // 2. Access check: super_admin or admin can register cameras in any plant/zone
     const isSuperAdmin = req.user.role === "super_admin";
-    const isPlantAdmin =
-      req.user.role === "admin" &&
-      Number(req.user.plant_id) === Number(zone.plant_id);
+    const isAdmin = req.user.role === "admin";
 
-    if (!isSuperAdmin && !isPlantAdmin) {
+    if (!isSuperAdmin && !isAdmin) {
       return res.status(403).json({
-        error: "Forbidden: only super_admin or admin assigned to this plant can add cameras",
-        message: "Forbidden: only super_admin or admin assigned to this plant can add cameras",
+        error: "Forbidden: only super_admin or admin can add cameras",
+        message: "Forbidden: only super_admin or admin can add cameras",
       });
     }
 
@@ -73,7 +78,7 @@ const createCamera = async (req, res) => {
       });
     }
 
-    // 4. Create camera taking zone_id strictly from URL
+    // 4. Create camera
     const camera = await db.Camera.create({
       zone_id: Number(zoneId),
       name: name.trim(),
@@ -90,7 +95,68 @@ const createCamera = async (req, res) => {
   }
 };
 
-//  GET /zones/:zoneId/cameras:- Access: User assigned to the zone's plant or super admin
+// GET /cameras - Access: Signed-in user (admin & super_admin see all; other users see assigned plant's cameras)
+const listCameras = async (req, res) => {
+  try {
+    const pagination = parsePagination(req.query);
+    if (pagination.error) {
+      return res.status(400).json({ error: pagination.error, message: pagination.error, });
+    }
+    const { page, limit, offset } = pagination;
+
+    const isSuperAdmin = req.user.role === "super_admin";
+    const isAdmin = req.user.role === "admin";
+
+    let zoneWhereClause = {};
+    if (!isSuperAdmin && !isAdmin) {
+      if (!req.user.plant_id) {
+        return res.status(200).json(formatPaginatedResponse([], 0, page, limit));
+      }
+      zoneWhereClause.plant_id = req.user.plant_id;
+    } else if (req.query.plant_id) {
+      zoneWhereClause.plant_id = req.query.plant_id;
+    }
+
+    let whereClause = {};
+    if (req.query.zone_id) {
+      whereClause.zone_id = req.query.zone_id;
+    }
+    if (req.query.status) {
+      whereClause.status = req.query.status;
+    }
+    if (req.query.feed_type) {
+      whereClause.feed_type = req.query.feed_type;
+    }
+    if (req.query.is_active !== undefined) {
+      whereClause.is_active = req.query.is_active === "true" || req.query.is_active === true || req.query.is_active === "1";
+    }
+    if (req.query.search && req.query.search.trim()) {
+      whereClause.name = { [Op.like]: `%${req.query.search.trim()}%` };
+    }
+
+    const { count, rows } = await db.Camera.findAndCountAll({
+      where: whereClause,
+      include: [
+        {
+          model: db.Zone,
+          as: "zone",
+          where: Object.keys(zoneWhereClause).length > 0 ? zoneWhereClause : undefined,
+          include: [{ model: db.Plant, as: "plant" }],
+        },
+      ],
+      limit,
+      offset,
+      order: [["id", "ASC"]],
+    });
+
+    return res.status(200).json(formatPaginatedResponse(rows, count, page, limit));
+  } catch (error) {
+    console.error("List cameras error:", error);
+    return res.status(500).json({ error: "Failed to retrieve cameras", message: error.message });
+  }
+};
+
+//  GET /zones/:zoneId/cameras:- Access: User assigned to the zone's plant, admin, or super admin
 const getCamerasByZone = async (req, res) => {
   try {
     // 1-4. Read, validate and calculate pagination parameters
@@ -112,9 +178,10 @@ const getCamerasByZone = async (req, res) => {
     }
 
     const isSuperAdmin = req.user.role === "super_admin";
+    const isAdmin = req.user.role === "admin";
     const isAssigned = Number(req.user.plant_id) === Number(zone.plant_id);
 
-    if (!isSuperAdmin && !isAssigned) {
+    if (!isSuperAdmin && !isAdmin && !isAssigned) {
       return res.status(403).json({
         error: "Forbidden: you do not have access to this zone's cameras",
         message: "Forbidden: you do not have access to this zone's cameras",
@@ -148,13 +215,19 @@ const getCamerasByZone = async (req, res) => {
   }
 };
 
-//  GET /cameras/:id:- Access: User assigned to the camera's zone's plant or super admin
+//  GET /cameras/:id:- Access: User assigned to the camera's zone's plant, admin, or super admin
 const getCameraById = async (req, res) => {
   try {
     const { id } = req.params;
 
     const camera = await db.Camera.findByPk(id, {
-      include: [{ model: db.Zone, as: "zone" }],
+      include: [
+        {
+          model: db.Zone,
+          as: "zone",
+          include: [{ model: db.Plant, as: "plant" }],
+        },
+      ],
     });
 
     if (!camera) {
@@ -165,10 +238,11 @@ const getCameraById = async (req, res) => {
     }
 
     const isSuperAdmin = req.user.role === "super_admin";
+    const isAdmin = req.user.role === "admin";
     const isAssigned =
       camera.zone && Number(req.user.plant_id) === Number(camera.zone.plant_id);
 
-    if (!isSuperAdmin && !isAssigned) {
+    if (!isSuperAdmin && !isAdmin && !isAssigned) {
       return res.status(403).json({
         error: "Forbidden: you do not have access to this camera",
         message: "Forbidden: you do not have access to this camera",
@@ -185,7 +259,7 @@ const getCameraById = async (req, res) => {
   }
 };
 
-//  PATCH /cameras/:id -  Access: Super admin or admin assigned to that plant
+//  PATCH /cameras/:id - Access: Super admin or admin
 const updateCamera = async (req, res) => {
   try {
     const { id } = req.params;
@@ -202,27 +276,35 @@ const updateCamera = async (req, res) => {
     }
 
     const isSuperAdmin = req.user.role === "super_admin";
-    const isPlantAdmin =
-      req.user.role === "admin" &&
-      camera.zone &&
-      Number(req.user.plant_id) === Number(camera.zone.plant_id);
+    const isAdmin = req.user.role === "admin";
 
-    if (!isSuperAdmin && !isPlantAdmin) {
+    if (!isSuperAdmin && !isAdmin) {
       return res.status(403).json({
-        error: "Forbidden: only super_admin or admin assigned to this plant can update camera",
-        message: "Forbidden: only super_admin or admin assigned to this plant can update camera",
+        error: "Forbidden: only super_admin or admin can update camera",
+        message: "Forbidden: only super_admin or admin can update camera",
       });
     }
 
-    if (req.body.zone_id !== undefined) {
-      return res.status(400).json({
-        error: "zone_id cannot be modified via ordinary camera updates",
-        message: "zone_id cannot be modified via ordinary camera updates",
-      });
-    }
-
-    const { name, feed_type, feed_url_or_path, status, last_heartbeat_at, is_active } = req.body;
+    const { name, feed_type, feed_url_or_path, status, last_heartbeat_at, is_active, zone_id, zoneId } = req.body;
     const updateData = {};
+
+    const targetZoneId = zone_id !== undefined ? zone_id : zoneId;
+    if (targetZoneId !== undefined) {
+      const targetZone = await db.Zone.findByPk(targetZoneId);
+      if (!targetZone) {
+        return res.status(404).json({
+          error: "Zone not found",
+          message: `Zone with ID ${targetZoneId} not found`,
+        });
+      }
+      if (targetZone.status !== "active") {
+        return res.status(400).json({
+          error: "Cannot assign camera to an inactive zone",
+          message: "Cannot assign camera to an inactive zone",
+        });
+      }
+      updateData.zone_id = Number(targetZoneId);
+    }
 
     if (name !== undefined) {
       if (typeof name !== "string" || !name.trim()) {
@@ -283,7 +365,7 @@ const updateCamera = async (req, res) => {
   }
 };
 
-// PATCH/POST /cameras/:id/enable - Access: Super admin or admin assigned to camera's zone's plant
+// PATCH/POST /cameras/:id/enable - Access: Super admin or admin
 const enableCamera = async (req, res) => {
   try {
     const { id } = req.params;
@@ -310,15 +392,12 @@ const enableCamera = async (req, res) => {
     }
 
     const isSuperAdmin = req.user.role === "super_admin";
-    const isPlantAdmin =
-      req.user.role === "admin" &&
-      camera.zone &&
-      Number(req.user.plant_id) === Number(camera.zone.plant_id);
+    const isAdmin = req.user.role === "admin";
 
-    if (!isSuperAdmin && !isPlantAdmin) {
+    if (!isSuperAdmin && !isAdmin) {
       return res.status(403).json({
-        error: "Forbidden: only super_admin or admin assigned to this plant can enable camera",
-        message: "Forbidden: only super_admin or admin assigned to this plant can enable camera",
+        error: "Forbidden: only super_admin or admin can enable camera",
+        message: "Forbidden: only super_admin or admin can enable camera",
       });
     }
 
@@ -352,7 +431,7 @@ const enableCamera = async (req, res) => {
   }
 };
 
-// PATCH/POST /cameras/:id/disable - Access: Super admin or admin assigned to camera's zone's plant
+// PATCH/POST /cameras/:id/disable - Access: Super admin or admin
 const disableCamera = async (req, res) => {
   try {
     const { id } = req.params;
@@ -373,15 +452,12 @@ const disableCamera = async (req, res) => {
     }
 
     const isSuperAdmin = req.user.role === "super_admin";
-    const isPlantAdmin =
-      req.user.role === "admin" &&
-      camera.zone &&
-      Number(req.user.plant_id) === Number(camera.zone.plant_id);
+    const isAdmin = req.user.role === "admin";
 
-    if (!isSuperAdmin && !isPlantAdmin) {
+    if (!isSuperAdmin && !isAdmin) {
       return res.status(403).json({
-        error: "Forbidden: only super_admin or admin assigned to this plant can disable camera",
-        message: "Forbidden: only super_admin or admin assigned to this plant can disable camera",
+        error: "Forbidden: only super_admin or admin can disable camera",
+        message: "Forbidden: only super_admin or admin can disable camera",
       });
     }
 
@@ -421,9 +497,9 @@ const updateCameraStatus = async (req, res) => {
   });
 };
 
-// DELETE /cameras/:id - Access: Super admin or admin assigned to camera's zone's plant
+// DELETE /cameras/:id - Access: Super admin or admin
 const deleteCamera = async (req, res) => {
   return disableCamera(req, res);
 };
 
-module.exports = { createCamera, getCamerasByZone, getCameraById, updateCamera, deleteCamera, enableCamera, disableCamera, updateCameraStatus, };
+module.exports = { createCamera, listCameras, getCamerasByZone, getCameraById, updateCamera, deleteCamera, enableCamera, disableCamera, updateCameraStatus, };

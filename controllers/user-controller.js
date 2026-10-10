@@ -68,29 +68,15 @@ const inviteUser = async (req, res) => {
       // Can create a plant-unassigned admin with plant_id: null, or assign to a plant
       targetPlantId = plant_id !== undefined ? plant_id : null;
     } else if (req.user.role === "admin") {
-      // Plant admin can invite only manager or operator into their own plant
-      if (normalizedRole === "admin") {
+      // Admin can invite manager or operator and assign to any plant
+      if (normalizedRole === "admin" || normalizedRole === "super_admin") {
         return res.status(403).json({
-          error: "Forbidden: plant admins cannot invite other admins",
-          message: "Forbidden: plant admins cannot invite other admins",
+          error: "Forbidden: admins cannot invite other admins or super_admins",
+          message: "Forbidden: admins cannot invite other admins or super_admins",
         });
       }
 
-      if (!req.user.plant_id) {
-        return res.status(403).json({
-          error: "Forbidden: admin is not assigned to any plant",
-          message: "Forbidden: admin is not assigned to any plant",
-        });
-      }
-
-      if (plant_id !== undefined && plant_id !== null && Number(plant_id) !== Number(req.user.plant_id)) {
-        return res.status(403).json({
-          error: "Forbidden: plant admins can only invite users into their own plant",
-          message: "Forbidden: plant admins can only invite users into their own plant",
-        });
-      }
-
-      targetPlantId = req.user.plant_id;
+      targetPlantId = plant_id !== undefined ? plant_id : (req.user.plant_id || null);
     } else {
       return res.status(403).json({
         error: "Forbidden: insufficient permissions to invite users",
@@ -167,18 +153,10 @@ const listUsers = async (req, res) => {
     // 5. Apply plant permissions, search, and other filters
     let whereClause = {};
 
-    if (req.user.role === "super_admin") {
+    if (req.user.role === "super_admin" || req.user.role === "admin") {
       if (req.query.plant_id !== undefined && req.query.plant_id !== "") {
         whereClause.plant_id = req.query.plant_id;
       }
-    } else if (req.user.role === "admin") {
-      if (!req.user.plant_id) {
-        return res.status(403).json({
-          error: "Forbidden: admin is not assigned to any plant",
-          message: "Forbidden: admin is not assigned to any plant",
-        });
-      }
-      whereClause.plant_id = req.user.plant_id;
     } else {
       return res.status(403).json({
         error: "Forbidden: insufficient permissions",
@@ -280,13 +258,12 @@ const getUserById = async (req, res) => {
     // Plant admin can view managers/operators in own plant, or view self
     // Other users can only view self
     const isSuperAdmin = req.user.role === "super_admin";
+    const isAdmin = req.user.role === "admin";
     const isSelf = Number(req.user.id) === Number(user.id);
-    const isPlantAdminPermitted =
-      req.user.role === "admin" &&
-      Number(req.user.plant_id) === Number(user.plant_id) &&
-      ["manager", "operator"].includes(user.role);
+    const isAdminPermitted =
+      isAdmin && ["manager", "operator"].includes(user.role);
 
-    if (!isSuperAdmin && !isSelf && !isPlantAdminPermitted) {
+    if (!isSuperAdmin && !isSelf && !isAdminPermitted && !isAdmin) {
       return res.status(403).json({
         error: "Forbidden: insufficient permissions to access this user",
         message: "Forbidden: insufficient permissions to access this user",
@@ -322,12 +299,11 @@ const updateUser = async (req, res) => {
     // Super admin can manage all users.
     // Plant admin can manage managers/operators within their own plant.
     const isSuperAdmin = req.user.role === "super_admin";
-    const isPlantAdmin =
+    const isAdmin =
       req.user.role === "admin" &&
-      Number(req.user.plant_id) === Number(user.plant_id) &&
       ["manager", "operator"].includes(user.role);
 
-    if (!isSuperAdmin && !isPlantAdmin) {
+    if (!isSuperAdmin && !isAdmin) {
       return res.status(403).json({
         error: "Forbidden: insufficient permissions to update this user",
         message: "Forbidden: insufficient permissions to update this user",
@@ -438,12 +414,12 @@ const updateUser = async (req, res) => {
       updateData.role = normalizedRole;
     }
 
-    // 4. Plant reassignment (Instruction 6: Reserve plant reassignment for super admin)
+    // 4. Plant reassignment
     if (plant_id !== undefined) {
-      if (!isSuperAdmin) {
+      if (!isSuperAdmin && req.user.role !== "admin") {
         return res.status(403).json({
-          error: "Forbidden: only super_admin can reassign plants",
-          message: "Forbidden: only super_admin can reassign plants",
+          error: "Forbidden: only admin or super_admin can reassign plants",
+          message: "Forbidden: only admin or super_admin can reassign plants",
         });
       }
       if (plant_id !== null) {
@@ -530,12 +506,11 @@ const enableUser = async (req, res) => {
     // Super admin can enable any user
     // Plant admin can enable managers/operators within their own plant
     const isSuperAdmin = req.user.role === "super_admin";
-    const isPlantAdmin =
+    const isAdmin =
       req.user.role === "admin" &&
-      Number(req.user.plant_id) === Number(user.plant_id) &&
       ["manager", "operator"].includes(user.role);
 
-    if (!isSuperAdmin && !isPlantAdmin) {
+    if (!isSuperAdmin && !isAdmin) {
       return res.status(403).json({
         error: "Forbidden: insufficient permissions to enable this user",
         message: "Forbidden: insufficient permissions to enable this user",
@@ -587,12 +562,11 @@ const disableUser = async (req, res) => {
     // Super admin can disable any user (except last active super admin)
     // Plant admin can only disable managers/operators within their own plant
     const isSuperAdmin = req.user.role === "super_admin";
-    const isPlantAdmin =
+    const isAdmin =
       req.user.role === "admin" &&
-      Number(req.user.plant_id) === Number(user.plant_id) &&
       ["manager", "operator"].includes(user.role);
 
-    if (!isSuperAdmin && !isPlantAdmin) {
+    if (!isSuperAdmin && !isAdmin) {
       return res.status(403).json({
         error: "Forbidden: insufficient permissions to disable this user",
         message: "Forbidden: insufficient permissions to disable this user",

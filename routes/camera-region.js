@@ -14,6 +14,6 @@ router.get("/:id", authenticate, cameraRegionController.getCameraRegionById);
 router.patch("/:id", authenticate, authorizeRoles("super_admin", "admin"), cameraRegionController.updateCameraRegion);
 
 // DELETE /camera-regions/:id - Super admin or admin assigned to that plant (disables region)
-router.delete("/:id", authenticate, authorizeRoles("super_admin", "admin"), cameraRegionController.deleteCameraRegion);
-
+router.delete("/:id", authenticate, ("super_admin", "admin"), cameraRegionController.deleteCameraRegion);
+authorizeRoles
 module.exports = router;

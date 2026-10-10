@@ -76,10 +76,11 @@ const uploadVideo = async (req, res) => {
       }
 
       const isSuperAdmin = req.user.role === "super_admin";
+      const isAdmin = req.user.role === "admin";
       const isAssigned =
         camera.zone && Number(req.user.plant_id) === Number(camera.zone.plant_id);
 
-      if (!isSuperAdmin && !isAssigned) {
+      if (!isSuperAdmin && !isAdmin && !isAssigned) {
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
         return res.status(403).json({
           error: "Forbidden: you do not have permission to upload videos for this camera",
@@ -158,10 +159,11 @@ const getVideosByCamera = async (req, res) => {
     }
 
     const isSuperAdmin = req.user.role === "super_admin";
+    const isAdmin = req.user.role === "admin";
     const isAssigned =
       camera.zone && Number(req.user.plant_id) === Number(camera.zone.plant_id);
 
-    if (!isSuperAdmin && !isAssigned) {
+    if (!isSuperAdmin && !isAdmin && !isAssigned) {
       return res.status(403).json({
         error: "Forbidden: you do not have access to this camera's videos",
         message: "Forbidden: you do not have access to this camera's videos",
@@ -217,11 +219,12 @@ const getVideoById = async (req, res) => {
     }
 
     const isSuperAdmin = req.user.role === "super_admin";
+    const isAdmin = req.user.role === "admin";
     const isAssigned =
       video.camera?.zone &&
       Number(req.user.plant_id) === Number(video.camera.zone.plant_id);
 
-    if (!isSuperAdmin && !isAssigned) {
+    if (!isSuperAdmin && !isAdmin && !isAssigned) {
       return res.status(403).json({
         error: "Forbidden: you do not have access to this video",
         message: "Forbidden: you do not have access to this video",
@@ -263,10 +266,11 @@ const listVideos = async (req, res) => {
     const { page, limit, offset } = pagination;
 
     const isSuperAdmin = req.user.role === "super_admin";
+    const isAdmin = req.user.role === "admin";
     const userPlantId = req.user.plant_id;
 
     const zoneWhere = {};
-    if (!isSuperAdmin) {
+    if (!isSuperAdmin && !isAdmin) {
       if (!userPlantId) {
         return res.status(403).json({
           error: "Forbidden: user is not assigned to any plant",
@@ -342,13 +346,10 @@ const deleteVideo = async (req, res) => {
     }
 
     const isSuperAdmin = req.user.role === "super_admin";
-    const isPlantAdmin =
-      req.user.role === "admin" &&
-      video.camera?.zone &&
-      Number(req.user.plant_id) === Number(video.camera.zone.plant_id);
+    const isAdmin = req.user.role === "admin";
     const isUploader = Number(req.user.id) === Number(video.uploaded_by);
 
-    if (!isSuperAdmin && !isPlantAdmin && !isUploader) {
+    if (!isSuperAdmin && !isAdmin && !isUploader) {
       return res.status(403).json({
         error: "Forbidden: you do not have permission to delete this video",
         message: "Forbidden: you do not have permission to delete this video",

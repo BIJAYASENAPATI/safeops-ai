@@ -27,16 +27,14 @@ const createCameraRegion = async (req, res) => {
       });
     }
 
-    // 2. Permission check: super_admin or plant admin of camera's plant
+    // 2. Permission check: super_admin or admin
     const isSuperAdmin = req.user.role === "super_admin";
-    const isPlantAdmin =
-      req.user.role === "admin" &&
-      Number(req.user.plant_id) === Number(camera.zone.plant_id);
+    const isAdmin = req.user.role === "admin";
 
-    if (!isSuperAdmin && !isPlantAdmin) {
+    if (!isSuperAdmin && !isAdmin) {
       return res.status(403).json({
-        error: "Forbidden: only super_admin or admin assigned to this plant can configure camera regions",
-        message: "Forbidden: only super_admin or admin assigned to this plant can configure camera regions",
+        error: "Forbidden: only super_admin or admin can configure camera regions",
+        message: "Forbidden: only super_admin or admin can configure camera regions",
       });
     }
 
@@ -127,10 +125,11 @@ const getRegionsByCamera = async (req, res) => {
     }
 
     const isSuperAdmin = req.user.role === "super_admin";
+    const isAdmin = req.user.role === "admin";
     const isAssigned =
       camera.zone && Number(req.user.plant_id) === Number(camera.zone.plant_id);
 
-    if (!isSuperAdmin && !isAssigned) {
+    if (!isSuperAdmin && !isAdmin && !isAssigned) {
       return res.status(403).json({
         error: "Forbidden: you do not have access to this camera's regions",
         message: "Forbidden: you do not have access to this camera's regions",
@@ -187,15 +186,12 @@ const updateCameraRegion = async (req, res) => {
 
     const camera = region.camera;
     const isSuperAdmin = req.user.role === "super_admin";
-    const isPlantAdmin =
-      req.user.role === "admin" &&
-      camera?.zone &&
-      Number(req.user.plant_id) === Number(camera.zone.plant_id);
+    const isAdmin = req.user.role === "admin";
 
-    if (!isSuperAdmin && !isPlantAdmin) {
+    if (!isSuperAdmin && !isAdmin) {
       return res.status(403).json({
-        error: "Forbidden: only super_admin or admin assigned to this plant can update camera regions",
-        message: "Forbidden: only super_admin or admin assigned to this plant can update camera regions",
+        error: "Forbidden: only super_admin or admin can update camera regions",
+        message: "Forbidden: only super_admin or admin can update camera regions",
       });
     }
 
@@ -309,10 +305,11 @@ const getCameraRegionById = async (req, res) => {
 
     const camera = region.camera;
     const isSuperAdmin = req.user.role === "super_admin";
+    const isAdmin = req.user.role === "admin";
     const isAssigned =
       camera?.zone && Number(req.user.plant_id) === Number(camera.zone.plant_id);
 
-    if (!isSuperAdmin && !isAssigned) {
+    if (!isSuperAdmin && !isAdmin && !isAssigned) {
       return res.status(403).json({
         error: "Forbidden: you do not have access to this camera region",
         message: "Forbidden: you do not have access to this camera region",
@@ -340,10 +337,11 @@ const listCameraRegions = async (req, res) => {
     const { page, limit, offset } = pagination;
 
     const isSuperAdmin = req.user.role === "super_admin";
+    const isAdmin = req.user.role === "admin";
     const userPlantId = req.user.plant_id;
 
     const zoneWhere = {};
-    if (!isSuperAdmin) {
+    if (!isSuperAdmin && !isAdmin) {
       if (!userPlantId) {
         return res.status(403).json({
           error: "Forbidden: user is not assigned to any plant",
@@ -416,15 +414,12 @@ const deleteCameraRegion = async (req, res) => {
 
     const camera = region.camera;
     const isSuperAdmin = req.user.role === "super_admin";
-    const isPlantAdmin =
-      req.user.role === "admin" &&
-      camera?.zone &&
-      Number(req.user.plant_id) === Number(camera.zone.plant_id);
+    const isAdmin = req.user.role === "admin";
 
-    if (!isSuperAdmin && !isPlantAdmin) {
+    if (!isSuperAdmin && !isAdmin) {
       return res.status(403).json({
-        error: "Forbidden: only super_admin or admin assigned to this plant can disable camera regions",
-        message: "Forbidden: only super_admin or admin assigned to this plant can disable camera regions",
+        error: "Forbidden: only super_admin or admin can disable camera regions",
+        message: "Forbidden: only super_admin or admin can disable camera regions",
       });
     }
 

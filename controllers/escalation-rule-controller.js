@@ -63,14 +63,12 @@ const createEscalationRule = async (req, res) => {
     }
 
     const isSuperAdmin = req.user.role === "super_admin";
-    const isPlantAdmin =
-      req.user.role === "admin" &&
-      Number(req.user.plant_id) === Number(zone.plant_id);
+    const isAdmin = req.user.role === "admin";
 
-    if (!isSuperAdmin && !isPlantAdmin) {
+    if (!isSuperAdmin && !isAdmin) {
       return res.status(403).json({
-        error: "Forbidden: only super_admin or admin assigned to this plant can configure escalation rules",
-        message: "Forbidden: only super_admin or admin assigned to this plant can configure escalation rules",
+        error: "Forbidden: only super_admin or admin can configure escalation rules",
+        message: "Forbidden: only super_admin or admin can configure escalation rules",
       });
     }
 
@@ -173,9 +171,10 @@ const getEscalationRulesByZone = async (req, res) => {
     }
 
     const isSuperAdmin = req.user.role === "super_admin";
+    const isAdmin = req.user.role === "admin";
     const isAssigned = Number(req.user.plant_id) === Number(zone.plant_id);
 
-    if (!isSuperAdmin && !isAssigned) {
+    if (!isSuperAdmin && !isAdmin && !isAssigned) {
       return res.status(403).json({
         error: "Forbidden: you do not have access to this zone's escalation rules",
         message: "Forbidden: you do not have access to this zone's escalation rules",
@@ -223,10 +222,11 @@ const listEscalationRules = async (req, res) => {
     const { page, limit, offset } = pagination;
 
     const isSuperAdmin = req.user.role === "super_admin";
+    const isAdmin = req.user.role === "admin";
     const userPlantId = req.user.plant_id;
 
     const zoneWhere = {};
-    if (!isSuperAdmin) {
+    if (!isSuperAdmin && !isAdmin) {
       if (!userPlantId) {
         return res.status(403).json({
           error: "Forbidden: user is not assigned to any plant",
@@ -301,10 +301,11 @@ const getEscalationRuleById = async (req, res) => {
     }
 
     const isSuperAdmin = req.user.role === "super_admin";
+    const isAdmin = req.user.role === "admin";
     const isAssigned =
       rule.zone && Number(req.user.plant_id) === Number(rule.zone.plant_id);
 
-    if (!isSuperAdmin && !isAssigned) {
+    if (!isSuperAdmin && !isAdmin && !isAssigned) {
       return res.status(403).json({
         error: "Forbidden: you do not have access to this escalation rule",
         message: "Forbidden: you do not have access to this escalation rule",
@@ -339,15 +340,12 @@ const updateEscalationRule = async (req, res) => {
     }
 
     const isSuperAdmin = req.user.role === "super_admin";
-    const isPlantAdmin =
-      req.user.role === "admin" &&
-      rule.zone &&
-      Number(req.user.plant_id) === Number(rule.zone.plant_id);
+    const isAdmin = req.user.role === "admin";
 
-    if (!isSuperAdmin && !isPlantAdmin) {
+    if (!isSuperAdmin && !isAdmin) {
       return res.status(403).json({
-        error: "Forbidden: only super_admin or admin assigned to this plant can update escalation rules",
-        message: "Forbidden: only super_admin or admin assigned to this plant can update escalation rules",
+        error: "Forbidden: only super_admin or admin can update escalation rules",
+        message: "Forbidden: only super_admin or admin can update escalation rules",
       });
     }
 
@@ -441,15 +439,12 @@ const deleteEscalationRule = async (req, res) => {
     }
 
     const isSuperAdmin = req.user.role === "super_admin";
-    const isPlantAdmin =
-      req.user.role === "admin" &&
-      rule.zone &&
-      Number(req.user.plant_id) === Number(rule.zone.plant_id);
+    const isAdmin = req.user.role === "admin";
 
-    if (!isSuperAdmin && !isPlantAdmin) {
+    if (!isSuperAdmin && !isAdmin) {
       return res.status(403).json({
-        error: "Forbidden: only super_admin or admin assigned to this plant can disable escalation rules",
-        message: "Forbidden: only super_admin or admin assigned to this plant can disable escalation rules",
+        error: "Forbidden: only super_admin or admin can disable escalation rules",
+        message: "Forbidden: only super_admin or admin can disable escalation rules",
       });
     }
 

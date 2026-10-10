@@ -4,7 +4,13 @@ const cameraController = require("../controllers/camera-controller");
 const authenticate = require("../middleware/authenticate");
 const authorizeRoles = require("../middleware/authorize-roles");
 
-// GET /cameras/:id - User assigned to camera's zone's plant or super admin
+// GET /cameras - List cameras (admin/super_admin sees all; others see assigned plant)
+router.get("/", authenticate, cameraController.listCameras);
+
+// POST /cameras - Super admin or admin registers camera
+router.post("/", authenticate, authorizeRoles("super_admin", "admin"), cameraController.createCamera);
+
+// GET /cameras/:id - User assigned to camera's zone's plant, admin, or super admin
 router.get("/:id", authenticate, cameraController.getCameraById);
 
 // Enable/disable camera - Super admin or admin assigned to that plant, not operator
