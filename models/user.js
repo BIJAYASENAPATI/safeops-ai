@@ -31,6 +31,8 @@ module.exports = (sequelize, DataTypes) => {
     invite_status: { type: DataTypes.ENUM("pending", "accepted"), allowNull: false, defaultValue: "pending", },
     account_status: { type: DataTypes.ENUM("active", "disabled"), allowNull: false, defaultValue: "active", },
     last_login_at: { type: DataTypes.DATE, allowNull: true, },
+    zone_id:{type:DataTypes.INTEGER,allowNull:true}
+
   },
     {
       tableName: "users",
@@ -48,6 +50,7 @@ module.exports = (sequelize, DataTypes) => {
     User.hasMany(models.User, { foreignKey: "invited_by", as: "invitees", });
     User.hasMany(models.InvitationToken, { foreignKey: "user_id", as: "invitation_tokens", });
     User.hasMany(models.Notification, { foreignKey: "recipient_id", as: "notifications", });
+    User.belongsTo(models.Zone,{foreignKey:"zoe_id"})
   };
 
   return User;

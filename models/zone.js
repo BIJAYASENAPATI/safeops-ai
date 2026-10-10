@@ -38,6 +38,7 @@ module.exports = (sequelize, DataTypes) => {
     Zone.hasMany(models.Incident, { foreignKey: "zone_id", as: "incidents", });
     Zone.hasMany(models.EscalationRule, { foreignKey: "zone_id", as: "escalation_rules", });
     Zone.hasMany(models.ZoneSafetyRule, { foreignKey: "zone_id", as: "safety_rules", });
+    Zone.hasMany(models.User,{foreignKey:"zone_id"})
   };
 
   return Zone;

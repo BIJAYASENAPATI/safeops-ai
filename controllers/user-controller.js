@@ -22,7 +22,7 @@ const formatSafeUser = (user) => ({
 // POST /users/invite
 const inviteUser = async (req, res) => {
   try {
-    const { name, email, role, plant_id, phone_number } = req.body;
+    const { name, email, role, plant_id, phone_number,zone_id } = req.body;
 
     // 1. Basic validation
     if (!name || !email || !role) {
@@ -111,6 +111,7 @@ const inviteUser = async (req, res) => {
           invite_status: "pending",
           account_status: "active",
           invited_by: req.user.id,
+          zone_id:req.user.zone_id
         },
         { transaction: t }
       );
@@ -187,7 +188,7 @@ const listUsers = async (req, res) => {
     // 6. Use findAndCountAll({ where, limit, offset, order: [["id", "ASC"]] })
     const { count, rows } = await db.User.findAndCountAll({
       where: whereClause,
-      attributes: ["id", "name", "email", "phone_number", "role", "plant_id", "invite_status", "account_status"],
+      attributes: ["id", "name", "email", "phone_number", "role", "plant_id", "invite_status", "account_status","zone_id"],
       limit,
       offset,
       order: [["id", "ASC"]],
