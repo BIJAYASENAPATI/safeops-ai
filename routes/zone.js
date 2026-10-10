@@ -29,4 +29,22 @@ router.post("/:zoneId/cameras", authenticate, authorizeRoles("super_admin", "adm
 // GET /zones/:zoneId/cameras - User assigned to the zone's plant or super admin
 router.get("/:zoneId/cameras", authenticate, cameraController.getCamerasByZone);
 
+// Safety rule routes scoped under zone
+const safetyRuleController = require("../controllers/safety-rule-controller");
+
+// POST /zones/:zoneId/safety-rules - Super admin or admin assigned to the zone's plant
+router.post("/:zoneId/safety-rules", authenticate, authorizeRoles("super_admin", "admin"), safetyRuleController.createSafetyRule);
+
+// GET /zones/:zoneId/safety-rules - User assigned to the zone's plant or super admin
+router.get("/:zoneId/safety-rules", authenticate, safetyRuleController.getSafetyRulesByZone);
+
+// Escalation rule routes scoped under zone
+const escalationRuleController = require("../controllers/escalation-rule-controller");
+
+// POST /zones/:zoneId/escalation-rules - Super admin or admin assigned to the zone's plant
+router.post("/:zoneId/escalation-rules", authenticate, authorizeRoles("super_admin", "admin"), escalationRuleController.createEscalationRule);
+
+// GET /zones/:zoneId/escalation-rules - User assigned to the zone's plant or super admin
+router.get("/:zoneId/escalation-rules", authenticate, escalationRuleController.getEscalationRulesByZone);
+
 module.exports = router;

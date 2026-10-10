@@ -1,13 +1,16 @@
 const crypto = require("crypto");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
+const { Op } = require("sequelize");
 const db = require("../db/db-connection");
+const { normalizePhoneNumber, isValidPhoneNumber } = require("../utils/phone");
 
 // Returns safe user fields, strictly excluding sensitive attributes like password_hash or tokens.
 const formatSafeUser = (user) => ({
   id: user.id,
   name: user.name,
   email: user.email,
+  phone_number: user.phone_number !== undefined ? user.phone_number : null,
   role: user.role,
   plant_id: user.plant_id,
   account_status: user.account_status,
@@ -17,30 +20,67 @@ const formatSafeUser = (user) => ({
 //  POST /auth/login
 const login = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const rawIdentifier =
+      req.body.identifier !== undefined ? req.body.identifier : req.body.email;
+    const { password } = req.body;
 
-    if (!email || !password) {
+    if (
+      !rawIdentifier ||
+      typeof rawIdentifier !== "string" ||
+      !rawIdentifier.trim() ||
+      !password ||
+      typeof password !== "string"
+    ) {
       return res.status(400).json({
-        error: "Email and password are required",
-        message: "Email and password are required",
+        error: "Identifier and password are required",
+        message: "Identifier and password are required",
       });
     }
 
-    // 1. Find user by email
-    const user = await db.User.findOne({ where: { email } });
+    const trimmedIdentifier = rawIdentifier.trim();
+    let user = null;
 
-    // Same generic 401 response for unknown email and wrong password
+    // Same generic 401 response for unknown email/phone and wrong password
     const genericAuthError = () =>
       res.status(401).json({
-        error: "Invalid email or password",
-        message: "Invalid email or password",
+        error: "Invalid email, phone number, or password",
+        message: "Invalid email, phone number, or password",
       });
+
+    if (trimmedIdentifier.includes("@")) {
+      // 2. If the identifier is an email, find the user by normalized email
+      const normalizedEmail = trimmedIdentifier.toLowerCase();
+      user = await db.User.findOne({ where: { email: normalizedEmail } });
+    } else {
+      // 3. Otherwise, validate and normalize it as a phone number, then find by phone_number
+      const normalizedPhone = normalizePhoneNumber(trimmedIdentifier);
+      if (isValidPhoneNumber(normalizedPhone)) {
+        user = await db.User.findOne({
+          where: {
+            [Op.or]: [
+              { phone_number: normalizedPhone },
+              { phone_number: trimmedIdentifier },
+            ],
+          },
+        });
+      } else {
+        // Not a valid phone number format
+        return genericAuthError();
+      }
+    }
 
     if (!user) {
       return genericAuthError();
     }
 
-    // 2. Reject pending invitations or users without password_hash
+    if (user.role === "system") {
+      return res.status(401).json({
+        error: "System account cannot be used for authentication",
+        message: "System account cannot be used for authentication",
+      });
+    }
+
+    // 4. Check invitation acceptance and account status
     if (user.invite_status === "pending" || !user.password_hash) {
       return res.status(401).json({
         error: "Account invitation is pending. Please complete registration before logging in.",
@@ -48,29 +88,34 @@ const login = async (req, res) => {
       });
     }
 
-    // 2b. Reject disabled accounts
     if (user.account_status === "disabled") {
-      return res.status(401).json({ error: "Account is disabled", message: "Account is disabled", });
+      return res.status(401).json({
+        error: "Account is disabled",
+        message: "Account is disabled",
+      });
     }
 
-    // 3. Compare password against password_hash
+    // 5. Compare password against password_hash
     const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
       return genericAuthError();
     }
 
-    // 4. Update last_login_at
+    // Update last_login_at
     await user.update({ last_login_at: new Date() });
 
-    // 5. Sign JWT token (expires in 8 hours)
+    // Sign JWT token (expires in 8 hours)
     const token = jwt.sign(
-      { id: user.id, role: user.role, plant_id: user.plant_id, },
+      { id: user.id, role: user.role, plant_id: user.plant_id },
       process.env.JWT_SECRET,
       { expiresIn: "8h" }
     );
 
-    // 6. Return token and safe user fields
-    return res.status(200).json({ token, user: formatSafeUser(user), });
+    // 6. Return existing token and safe user response
+    return res.status(200).json({
+      token,
+      user: formatSafeUser(user),
+    });
   } catch (error) {
     console.error("Login error:", error);
     return res.status(500).json({
@@ -160,6 +205,7 @@ const acceptInvite = async (req, res) => {
         id: invitation.user.id,
         name: invitation.user.name,
         email: invitation.user.email,
+        phone_number: invitation.user.phone_number !== undefined ? invitation.user.phone_number : null,
         role: invitation.user.role,
         plant_id: invitation.user.plant_id,
         invite_status: "accepted",
